@@ -1,24 +1,191 @@
-import { Canvas, useLoader } from '@react-three/fiber'
-import { OrbitControls, Environment, Lightformer } from '@react-three/drei'
-import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
-import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js'
-import * as THREE from 'three'
-import { useMemo } from 'react'
+import { useEffect, useMemo, useState } from 'react'
+import Scene, { flyHome } from './three/Scene'
+import { loadGroups, buildBVHIdle } from './three/registry'
+import { useStore, type Mode, type TourId } from './store'
+import { SYSTEMS, LAYERS, search, isMobile, type Structure } from './data'
+import Loader from './ui/Loader'
+import InfoCard from './ui/InfoCard'
+import Sources from './ui/Sources'
 
-function Skeleton() {
-  const gltf = useLoader(GLTFLoader, './models/skeleton.glb', (l) => l.setMeshoptDecoder(MeshoptDecoder))
-  const mat = useMemo(() => new THREE.MeshPhysicalMaterial({ color: '#efe6d2', roughness: 0.55, clearcoat: 0.2 }), [])
-  useMemo(() => gltf.scene.traverse((o: any) => { if (o.isMesh) o.material = mat }), [gltf, mat])
-  return <primitive object={gltf.scene} />
+function useLoad() {
+  const set = useStore((s) => s.set)
+  useEffect(() => {
+    let alive = true
+    // first paint: skin, bones, organs, heart & vessels, brain. Muscles stream afterwards.
+    loadGroups(['skin', 'skeleton', 'organs', 'cardio', 'nervous'], (f) => alive && set({ progress: f }))
+      .then(() => {
+        if (!alive) return
+        set({ progress: 1 })
+        setTimeout(() => set({ ready: true }), 250)
+        return loadGroups(['muscles'], (f) => set({ streaming: f }))
+      })
+      .then(() => { set({ streaming: 1 }); buildBVHIdle() })
+      .catch((e) => console.error(e))
+    return () => { alive = false }
+  }, [set])
 }
-export default function App() {
+
+function SearchBox() {
+  const [q, setQ] = useState('')
+  const [open, setOpen] = useState(false)
+  const select = useStore((s) => s.select)
+  const set = useStore((s) => s.set)
+  const results = useMemo(() => search(q), [q])
+  const choose = (s: Structure) => {
+    const depth = { skin: 0, superficial: 1, deep: 2, organs: 3, bones: 4 }[s.layer]
+    const st = useStore.getState()
+    set({ depth: Math.min(st.depth, depth), mode: st.mode === 'explode' ? 'layers' : st.mode, systems: { ...st.systems, [s.system]: true } })
+    select(s.id, true)
+    setQ(''); setOpen(false)
+  }
   return (
-    <Canvas camera={{ position: [0, 0.1, 2.6], fov: 40 }} style={{ position: 'fixed', inset: 0, background: '#0a0d14' }}>
-      <ambientLight intensity={0.3} />
-      <directionalLight position={[2, 3, 2]} intensity={2} />
-      <Environment resolution={256}><Lightformer intensity={2} position={[0,4,2]} scale={[6,2,1]} /><Lightformer intensity={1} position={[-4,0,2]} scale={[2,6,1]} /></Environment>
-      <Skeleton />
-      <OrbitControls autoRotate />
-    </Canvas>
+    <div className="search">
+      <svg viewBox="0 0 24 24" aria-hidden><circle cx="10.5" cy="10.5" r="6.5" /><path d="M20 20l-4.6-4.6" /></svg>
+      <input value={q} onChange={(e) => { setQ(e.target.value); setOpen(true) }} onFocus={() => setOpen(true)} onBlur={() => setTimeout(() => setOpen(false), 150)}
+        placeholder="ابحث: قلب، كبد، عظم الفخذ، femur…" aria-label="بحث عن عضو"
+        onKeyDown={(e) => { if (e.key === 'Enter' && results[0]) choose(results[0]) }} />
+      {open && q && (
+        <ul className="results glass">
+          {results.length === 0 && <li className="muted">لا نتائج</li>}
+          {results.map((s) => (
+            <li key={s.id} onMouseDown={() => choose(s)}>
+              <i style={{ background: SYSTEMS.find((x) => x.key === s.system)?.color }} />
+              <span>{s.ar}</span><small dir="ltr">{s.en}</small>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  )
+}
+
+function SystemsMenu() {
+  const systems = useStore((s) => s.systems)
+  const toggle = useStore((s) => s.toggleSystem)
+  const set = useStore((s) => s.set)
+  const [open, setOpen] = useState(!isMobile)
+  const only = (k: string) => set({ systems: Object.fromEntries(SYSTEMS.map((s) => [s.key, s.key === k])), depth: k === 'skeletal' ? 4 : k === 'muscular' ? 1 : k === 'integumentary' ? 0 : 3 })
+  return (
+    <nav className={'systems glass' + (open ? ' open' : '')} aria-label="الأجهزة">
+      <button className="systems-head" onClick={() => setOpen(!open)} aria-expanded={open}>
+        <span>أجهزة الجسم</span><b>{open ? '−' : '+'}</b>
+      </button>
+      {open && (
+        <ul>
+          {SYSTEMS.map((s) => (
+            <li key={s.key} className={systems[s.key] ? 'on' : ''}>
+              <button onClick={() => toggle(s.key)} style={{ ['--c' as string]: s.color }} aria-pressed={systems[s.key]}>
+                <i />{s.ar}
+              </button>
+              <button className="solo" onClick={() => only(s.key)} title="إظهار هذا الجهاز فقط" aria-label={'إظهار ' + s.ar + ' فقط'}>◉</button>
+            </li>
+          ))}
+          <li className="all"><button onClick={() => set({ systems: Object.fromEntries(SYSTEMS.map((s) => [s.key, true])) })}>إظهار الكل</button></li>
+        </ul>
+      )}
+    </nav>
+  )
+}
+
+const MODES: { k: Mode; ar: string }[] = [
+  { k: 'layers', ar: 'الطبقات' }, { k: 'xray', ar: 'الأشعة' }, { k: 'section', ar: 'المقطع' }, { k: 'explode', ar: 'التفكيك' },
+]
+const TOURS: { k: TourId; ar: string }[] = [
+  { k: 'blood', ar: 'رحلة قطرة دم' }, { k: 'food', ar: 'رحلة لقمة طعام' }, { k: 'arm', ar: 'كيف يتحرك الذراع' },
+]
+
+function Dock() {
+  const st = useStore()
+  return (
+    <div className="dock">
+      <div className="dock-row glass">
+        <div className="seg" role="tablist" aria-label="وضع العرض">
+          {MODES.map((m) => (
+            <button key={m.k} role="tab" aria-selected={st.mode === m.k} className={st.mode === m.k ? 'on' : ''} onClick={() => st.set({ mode: m.k })}>{m.ar}</button>
+          ))}
+        </div>
+        <button className={'life' + (st.life ? ' on' : '')} onClick={() => st.set({ life: !st.life })} aria-pressed={st.life} title="القلب ينبض والرئتان تتنفسان والدم يجري">
+          <span className="beat" />الحياة
+        </button>
+      </div>
+      <div className="dock-row glass controls">
+        {(st.mode === 'layers' || st.mode === 'section' || st.mode === 'explode') && (
+          <div className="layers" aria-label="عمق التشريح">
+            {LAYERS.map((l, i) => (
+              <button key={l.key} className={st.depth === i ? 'on' : st.depth > i ? 'peeled' : ''} onClick={() => st.set({ depth: i })}>{l.ar}</button>
+            ))}
+          </div>
+        )}
+        {st.mode === 'section' && (
+          <div className="slider-row">
+            <div className="seg small">
+              {(['x', 'y', 'z'] as const).map((a) => (
+                <button key={a} className={st.sectionAxis === a ? 'on' : ''} onClick={() => st.set({ sectionAxis: a })}>{{ x: 'سهمي', y: 'أفقي', z: 'جبهي' }[a]}</button>
+              ))}
+            </div>
+            <input type="range" min={-1} max={1} step={0.005} value={st.sectionPos} onChange={(e) => st.set({ sectionPos: +e.target.value })} aria-label="موضع المقطع" />
+          </div>
+        )}
+        {st.mode === 'explode' && (
+          <div className="slider-row"><span>التباعد</span><input type="range" min={0} max={1} step={0.01} value={st.explode} onChange={(e) => st.set({ explode: +e.target.value })} aria-label="مقدار التفكيك" /></div>
+        )}
+        {st.mode === 'xray' && <div className="hint">جسم زجاجي بحواف فرينل — المس عضوًا ليظهر بلونه الحقيقي</div>}
+      </div>
+    </div>
+  )
+}
+
+function ToursBar() {
+  const tour = useStore((s) => s.tour)
+  const caption = useStore((s) => s.caption)
+  const set = useStore((s) => s.set)
+  const [open, setOpen] = useState(!isMobile)
+  return (
+    <>
+      <div className={'tours' + (open ? ' open' : '')}>
+        {isMobile && <button className="tour-btn glass tours-toggle" onClick={() => setOpen(!open)} aria-expanded={open}><span>▶</span>جولات سينمائية</button>}
+        {open && TOURS.map((t) => (
+          <button key={t.k} className={'tour-btn glass' + (tour === t.k ? ' on' : '')} onClick={() => { set({ tour: tour === t.k ? null : t.k, selected: null, isolated: false }); if (isMobile) setOpen(false) }}>
+            <span>▶</span>{t.ar}
+          </button>
+        ))}
+      </div>
+      {tour && caption && <div className="caption glass" key={caption}>{caption}</div>}
+    </>
+  )
+}
+
+export default function App() {
+  useLoad()
+  const page = useStore((s) => s.page)
+  const ready = useStore((s) => s.ready)
+  const streaming = useStore((s) => s.streaming)
+  const set = useStore((s) => s.set)
+  useEffect(() => {
+    const f = () => set({ page: location.hash === '#/sources' ? 'sources' : 'viewer' })
+    window.addEventListener('hashchange', f)
+    return () => window.removeEventListener('hashchange', f)
+  }, [set])
+  return (
+    <>
+      <Scene />
+      <div className={'ui' + (ready ? ' ready' : '')}>
+        <header className="top">
+          <button className="brand" onClick={() => { set({ selected: null, isolated: false, tour: null }); flyHome() }} aria-label="الجسد — العودة للعرض الكامل">
+            <svg viewBox="0 0 64 64" aria-hidden><path d="M32 52S10 39 10 24a11 11 0 0 1 22-3 11 11 0 0 1 22 3c0 15-22 28-22 28z" /><path className="ln" d="M12 32h12l4-8 5 16 4-8h15" /></svg>
+            <span>الجسد</span>
+          </button>
+          <SearchBox />
+          <a className="src-link" href="#/sources">المصادر والرخصة</a>
+        </header>
+        <SystemsMenu />
+        <InfoCard />
+        <ToursBar />
+        <Dock />
+        {ready && streaming < 1 && <div className="stream glass">تحميل العضلات… {Math.round(streaming * 100)}%</div>}
+      </div>
+      {page === 'sources' && <Sources />}
+      <Loader />
+    </>
   )
 }

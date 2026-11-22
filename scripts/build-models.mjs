@@ -184,7 +184,7 @@ for (const group of Object.keys(BUDGET)) {
           en: p.name, group, system: p.system, fmaSystems: [...new Set(p.sys)],
           min: mn.map(r3), max: mx.map(r3), centroid: c.map((v) => r3(v / (P.length / 3))), tris: orig,
         };
-        if (group === 'cardio' || (group === 'nervous' && /optic/.test(p.name))) {
+        if (group === 'cardio' || (group === 'nervous' && /optic/.test(p.name)) || /^(esophagus|trachea|right ureter|left ureter)$/.test(p.name)) {
           const cl = centerline(s.positions, s.indices);
           if (cl) flow[p.id] = cl;
         }

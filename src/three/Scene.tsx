@@ -1,0 +1,191 @@
+import { useEffect, useMemo, useRef } from 'react'
+import { Canvas, useFrame, useThree } from '@react-three/fiber'
+import { Environment, Lightformer, OrbitControls } from '@react-three/drei'
+import { EffectComposer, Bloom, SSAO, DepthOfField, Vignette, ToneMapping } from '@react-three/postprocessing'
+import { BlendFunction, ToneMappingMode, type DepthOfFieldEffect } from 'postprocessing'
+import * as THREE from 'three'
+import gsap from 'gsap'
+import type { OrbitControls as OrbitControlsImpl } from 'three-stdlib'
+import Body from './Body'
+import Life from './Life'
+import Tours from './Tours'
+import { parts } from './registry'
+import { STRUCTURES, isMobile } from '../data'
+import { useStore } from '../store'
+
+export const HOME = isMobile
+  ? { pos: new THREE.Vector3(0, 0.1, 4.3), target: new THREE.Vector3(0, 0.06, 0) }
+  : { pos: new THREE.Vector3(0, 0.12, 2.75), target: new THREE.Vector3(0, 0.02, 0) }
+export const rig: { controls: OrbitControlsImpl | null; camera: THREE.PerspectiveCamera | null; focus: THREE.Vector3; dof: number } = {
+  controls: null, camera: null, focus: new THREE.Vector3(), dof: 0,
+}
+
+// cinematic fly: arcs around the target while dollying in
+export function flyTo(pos: THREE.Vector3, target: THREE.Vector3, duration = 1.8, onComplete?: () => void) {
+  const c = rig.controls, cam = rig.camera
+  if (!c || !cam) return
+  const p0 = cam.position.clone(), t0 = c.target.clone()
+  const o = { t: 0 }
+  gsap.killTweensOf(o)
+  gsap.to(o, {
+    t: 1, duration, ease: 'power3.inOut',
+    onUpdate: () => {
+      const k = o.t
+      c.target.lerpVectors(t0, target, k)
+      const p = new THREE.Vector3().lerpVectors(p0, pos, k)
+      // lift the path in the middle for a crane-like move
+      p.y += Math.sin(k * Math.PI) * 0.12 * p0.distanceTo(pos)
+      cam.position.copy(p)
+      c.update()
+    },
+    onComplete,
+  })
+}
+export function flyToStructure(id: string) {
+  const s = STRUCTURES[id]; const cam = rig.camera; const c = rig.controls
+  if (!s || !cam || !c) return
+  const p = parts.get(id)
+  const target = new THREE.Vector3(...s.c).add(p ? p.mesh.position : new THREE.Vector3())
+  const size = Math.max(s.max[0] - s.min[0], s.max[1] - s.min[1], s.max[2] - s.min[2])
+  const dist = THREE.MathUtils.clamp(size * 2.6, 0.18, 1.6) * (isMobile ? 1.35 : 1)
+  const dir = cam.position.clone().sub(c.target).normalize()
+  // prefer viewing from the structure's exposed side
+  if (Math.abs(s.c[0]) > 0.08) dir.x += Math.sign(s.c[0]) * 0.5
+  dir.y = Math.max(dir.y, 0.05)
+  dir.normalize()
+  rig.focus.copy(target)
+  flyTo(target.clone().addScaledVector(dir, dist), target)
+}
+export function flyHome() { rig.focus.set(0, 0, 0); flyTo(HOME.pos, HOME.target) }
+
+function Rig() {
+  const ref = useRef<OrbitControlsImpl>(null)
+  const { camera } = useThree()
+  const focusTick = useStore((s) => s.focusTick)
+  useEffect(() => { rig.controls = ref.current; rig.camera = camera as THREE.PerspectiveCamera }, [camera])
+  useEffect(() => {
+    const sel = useStore.getState().selected
+    if (focusTick && sel) flyToStructure(sel)
+  }, [focusTick])
+  useFrame(() => {
+    const st = useStore.getState()
+    const want = st.selected && st.focusTick ? 1 : 0
+    rig.dof += (want - rig.dof) * 0.05
+    if (ref.current) ref.current.autoRotate = !st.selected && !st.tour && st.ready
+  })
+  return (
+    <OrbitControls ref={ref} makeDefault enableDamping dampingFactor={0.08} autoRotateSpeed={0.35} minDistance={0.12} maxDistance={5}
+      target={HOME.target.toArray() as [number, number, number]} />
+  )
+}
+
+function Backdrop() {
+  // dark radial gradient dome + slow drifting light motes
+  const dome = useMemo(() => new THREE.ShaderMaterial({
+    side: THREE.BackSide, depthWrite: false,
+    uniforms: { uTime: { value: 0 } },
+    vertexShader: 'varying vec3 vP; void main(){ vP = normalize(position); gl_Position = projectionMatrix*modelViewMatrix*vec4(position,1.0); }',
+    fragmentShader: /* glsl */ `varying vec3 vP; uniform float uTime;
+      void main(){ float h = vP.y*0.5+0.5;
+        vec3 top = vec3(0.035,0.05,0.085), mid = vec3(0.02,0.028,0.05), bot = vec3(0.008,0.01,0.018);
+        vec3 c = mix(bot, mid, smoothstep(0.0,0.5,h)); c = mix(c, top, smoothstep(0.5,1.0,h));
+        float glow = pow(max(0.0, 1.0 - length(vP.xy - vec2(0.0,0.1))), 3.0); c += vec3(0.05,0.03,0.05)*glow*0.6;
+        gl_FragColor = vec4(c,1.0); }`,
+  }), [])
+  const motes = useMemo(() => {
+    const N = isMobile ? 220 : 600
+    const g = new THREE.BufferGeometry()
+    const p = new Float32Array(N * 3), s = new Float32Array(N)
+    for (let i = 0; i < N; i++) {
+      const r = 1.2 + Math.random() * 3.5, a = Math.random() * Math.PI * 2
+      p.set([Math.cos(a) * r, (Math.random() - 0.5) * 4, Math.sin(a) * r - 0.6], i * 3); s[i] = Math.random()
+    }
+    g.setAttribute('position', new THREE.BufferAttribute(p, 3)); g.setAttribute('seed', new THREE.BufferAttribute(s, 1))
+    const m = new THREE.ShaderMaterial({
+      transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, uniforms: { uTime: { value: 0 } },
+      vertexShader: /* glsl */ `attribute float seed; uniform float uTime; varying float vA;
+        void main(){ vec3 p = position; p.y += mod(uTime*0.02*(0.4+seed) + seed*4.0, 4.0) - 2.0 - position.y*0.0;
+          p.x += sin(uTime*0.1+seed*20.0)*0.08; vec4 mv = modelViewMatrix*vec4(p,1.0);
+          gl_Position = projectionMatrix*mv; gl_PointSize = (2.0+seed*5.0)*(3.0/-mv.z); vA = 0.25+0.5*sin(uTime*0.5+seed*30.0)*0.5+0.25; }`,
+      fragmentShader: 'varying float vA; void main(){ float r=length(gl_PointCoord-0.5); if(r>0.5) discard; gl_FragColor=vec4(vec3(0.55,0.75,1.0)*smoothstep(0.5,0.0,r)*vA,1.0); }',
+    })
+    const pts = new THREE.Points(g, m); pts.frustumCulled = false
+    return pts
+  }, [])
+  useFrame((_, dt) => { (motes.material as THREE.ShaderMaterial).uniforms.uTime.value += dt })
+  return (
+    <>
+      <mesh material={dome} scale={30} renderOrder={-10}><sphereGeometry args={[1, 32, 16]} /></mesh>
+      <primitive object={motes} />
+    </>
+  )
+}
+
+function Lights() {
+  return (
+    <>
+      <ambientLight intensity={0.12} />
+      <directionalLight position={[1.5, 2.5, 2.5]} intensity={1.6} color="#fff3e6" />
+      {/* rim light from behind carves the silhouette */}
+      <directionalLight position={[-1.2, 1.5, -3]} intensity={3.2} color="#8fc4ff" />
+      <directionalLight position={[1.8, -0.5, -2.5]} intensity={1.6} color="#ffb48a" />
+      <Environment resolution={256} frames={1}>
+        {/* soft studio HDRI built from light-formers (no network fetch) */}
+        <Lightformer form="rect" intensity={1.6} position={[0, 4, 2]} scale={[8, 3, 1]} color="#fff6ee" />
+        <Lightformer form="rect" intensity={0.9} position={[-5, 1, 1]} rotation-y={Math.PI / 2} scale={[4, 6, 1]} color="#cfe3ff" />
+        <Lightformer form="rect" intensity={0.7} position={[5, 0.5, 0]} rotation-y={-Math.PI / 2} scale={[4, 6, 1]} color="#ffd8c4" />
+        <Lightformer form="ring" intensity={2.2} position={[0, 1, -5]} scale={3} color="#9cc8ff" />
+        <Lightformer form="rect" intensity={0.25} position={[0, -4, 0]} rotation-x={Math.PI / 2} scale={[10, 10, 1]} color="#30283a" />
+      </Environment>
+    </>
+  )
+}
+
+const FX = !/[?&]fx=0/.test(location.search)
+function Effects() {
+  const dofRef = useRef<DepthOfFieldEffect>(null)
+  useFrame(() => {
+    const d = dofRef.current
+    if (!d) return
+    d.target = rig.focus
+    d.bokehScale = rig.dof * 3.2
+  })
+  if (isMobile) {
+    return (
+      <EffectComposer multisampling={0}>
+        <Bloom mipmapBlur luminanceThreshold={2.2} intensity={0.7} radius={0.6} />
+        <Vignette offset={0.25} darkness={0.75} />
+        <ToneMapping mode={ToneMappingMode.ACES_FILMIC} />
+      </EffectComposer>
+    )
+  }
+  return (
+    <EffectComposer multisampling={4} enableNormalPass>
+      {!/noao/.test(location.search) ? <SSAO blendFunction={BlendFunction.MULTIPLY} samples={16} rings={4} radius={0.06} intensity={18} luminanceInfluence={0.5} worldDistanceThreshold={1} worldDistanceFalloff={0.3} worldProximityThreshold={0.4} worldProximityFalloff={0.2} /> : <></>}
+      {!/nodof/.test(location.search) ? <DepthOfField ref={dofRef} focusRange={0.05} bokehScale={0} /> : <></>}
+      <Bloom mipmapBlur luminanceThreshold={2.2} intensity={0.7} radius={0.6} />
+      <Vignette offset={0.25} darkness={0.75} />
+      <ToneMapping mode={ToneMappingMode.ACES_FILMIC} />
+    </EffectComposer>
+  )
+}
+
+export default function Scene() {
+  const ready = useStore((s) => s.ready)
+  return (
+    <Canvas
+      dpr={isMobile ? [1, 1.6] : [1, 2]}
+      gl={{ antialias: false, powerPreference: 'high-performance', toneMapping: FX ? THREE.NoToneMapping : THREE.ACESFilmicToneMapping }}
+      camera={{ position: HOME.pos.toArray() as [number, number, number], fov: 38, near: 0.02, far: 80 }}
+      style={{ position: 'fixed', inset: 0 }}
+    >
+      <Backdrop />
+      <Lights />
+      <Body />
+      {ready && <Life />}
+      {ready && <Tours />}
+      <Rig />
+      {FX && <Effects />}
+    </Canvas>
+  )
+}
