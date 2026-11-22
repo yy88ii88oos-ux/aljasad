@@ -62,7 +62,7 @@ export const useStore = create<State>((set) => ({
   progress: 0,
   ready: false,
   streaming: 0,
-  page: typeof location !== 'undefined' && location.hash === '#/sources' ? 'sources' : 'viewer',
+  page: typeof location !== 'undefined' && location.hash === '#sources' ? 'sources' : 'viewer',
   ...initial,
   set: (p) => set(p),
   select: (id, fly) => set((s) => ({ selected: id, isolated: id ? s.isolated : false, focusTick: fly ? s.focusTick + 1 : s.focusTick, focused: !!(id && (fly || (s.focused && id === s.selected))) })),

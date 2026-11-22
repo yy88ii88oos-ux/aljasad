@@ -26,3 +26,6 @@ node scripts/build-structures.mjs
 ## الرخص
 - النماذج ومشتقاتها: CC BY-SA 2.1 JP — "BodyParts3D, © The Database Center for Life Science licensed under CC Attribution-Share Alike 2.1 Japan".
 - الشيفرة: MIT.
+
+## روابط مباشرة
+`?mode=xray|section|explode` · `depth=0..4` · `sys=skeletal,muscular` · `sel=FMA7274` · `fly=1` · `iso=1` · `tour=blood|food|arm` · `axis=x|y|z&pos=-1..1` · `lod=m` (نماذج خفيفة)

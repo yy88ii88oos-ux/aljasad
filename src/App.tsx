@@ -166,7 +166,7 @@ export default function App() {
   const streaming = useStore((s) => s.streaming)
   const set = useStore((s) => s.set)
   useEffect(() => {
-    const f = () => set({ page: location.hash === '#/sources' ? 'sources' : 'viewer' })
+    const f = () => set({ page: location.hash === '#sources' ? 'sources' : 'viewer' })
     window.addEventListener('hashchange', f)
     return () => window.removeEventListener('hashchange', f)
   }, [set])
@@ -180,7 +180,7 @@ export default function App() {
             <span>الجسد</span>
           </button>
           <SearchBox />
-          <a className="src-link" href="#/sources">المصادر والرخصة</a>
+          <a className="src-link" href="#sources">المصادر والرخصة</a>
         </header>
         <SystemsMenu />
         <InfoCard />

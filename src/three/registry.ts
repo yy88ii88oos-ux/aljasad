@@ -170,7 +170,11 @@ export async function loadGroups(groups: Group[], onProgress: (f: number) => voi
     onProgress(Math.min(1, L / T))
   }
   await Promise.all(groups.map(async (g) => {
-    const buf = await fetchWithProgress(BASE + g + LOD + '.glb', (l, t) => { loaded[g] = l; if (t) totals[g] = t; report() })
+    // VITE_MODELS_B64: hosts that only serve text get base64 copies of the same GLB files
+    const b64 = import.meta.env.VITE_MODELS_B64 === '1'
+    if (b64) totals[g] *= 1.34
+    let buf = await fetchWithProgress(BASE + g + LOD + '.glb' + (b64 ? '.txt' : ''), (l, t) => { loaded[g] = l; if (t) totals[g] = t; report() })
+    if (b64) buf = Uint8Array.from(atob(new TextDecoder().decode(buf)), (c) => c.charCodeAt(0)).buffer
     const gltf = await loader.parseAsync(buf, BASE)
     register(gltf.scene)
     onGroup?.(g)
