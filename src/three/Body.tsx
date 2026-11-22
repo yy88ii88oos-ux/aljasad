@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react'
 import { useFrame, useThree } from '@react-three/fiber'
 import * as THREE from 'three'
+import gsap from 'gsap'
 import { parts, root } from './registry'
 import { SHARED, CLIP_PLANE } from './materials'
 import { useStore } from '../store'
@@ -17,6 +18,9 @@ export function heartPulse(t: number) {
 export const breathPhase = (t: number) => 0.5 - 0.5 * Math.cos(t * BREATH * Math.PI * 2)
 
 const tmp = new THREE.Vector3()
+const segA = new THREE.Vector3(), segB = new THREE.Vector3()
+let selR = 0.1
+const ray = new THREE.Ray(), box = new THREE.Box3()
 const glowCol = new THREE.Color()
 const WARM = new THREE.Color('#ffd9a0')
 const EXT = { x: 0.34, y: 0.86, z: 0.2 }
@@ -46,6 +50,14 @@ export default function Body() {
       SHARED.uCap.value = 0
     }
 
+    // focus: ghost whatever sits between the camera and the focused structure
+    const sel = st.focused && st.selected ? parts.get(st.selected) : undefined
+    if (sel) {
+      segA.copy(camera.position); segB.copy(sel.center).add(sel.mesh.position)
+      const sz = sel.s.max.map((v, i) => v - sel.s.min[i])
+      selR = Math.max(0.05, Math.max(...sz) * 0.55)
+      ray.set(segA, segB.clone().sub(segA).normalize())
+    }
     const pulse = st.life ? heartPulse(t) : 0
     const breath = st.life ? breathPhase(t) : 0
     const xray = st.mode === 'xray'
@@ -60,6 +72,13 @@ export default function Body() {
         else if (li < st.depth) target = 0
       }
       if (st.isolated && st.selected) target = p.id === st.selected ? 1 : 0
+      else if (sel && p !== sel && target > 0) {
+        // ghost anything whose bounds the camera→target sight line crosses before reaching the target
+        box.min.set(...p.s.min).add(p.mesh.position); box.max.set(...p.s.max).add(p.mesh.position)
+        const hit = ray.intersectBox(box, tmp)
+        const dTarget = segA.distanceTo(segB)
+        if (hit && segA.distanceTo(hit) < dTarget - selR * 0.6 && !box.containsPoint(segB)) target = 0.12
+      }
       if (st.tour === 'arm' && s.group !== 'skeleton' && !(s.group === 'muscles' && /arm|brachi|deltoid|biceps|triceps|anconeus|pectoralis major|carpi|pronator|supinator/.test(s.en))) target = Math.min(target, 0)
       p.target = target
       p.fade += (target - p.fade) * k
@@ -78,7 +97,8 @@ export default function Body() {
         const baseOp = m.userData.baseOpacity as number
         const op = (s.layer === 'skin' ? baseOp : 1) * p.fade
         const needT = s.layer === 'skin' || op < 0.995
-        if (m.transparent !== needT) { m.transparent = needT; m.depthWrite = s.layer !== 'skin'; m.needsUpdate = true }
+        if (m.transparent !== needT) { m.transparent = needT; m.needsUpdate = true }
+        m.depthWrite = s.layer !== 'skin' && op > 0.6
         m.opacity = op
         // highlight glow (bloom picks up emissive > 1)
         const want = p.id === st.selected ? 0.75 + 0.25 * Math.sin(t * 3) : st.highlight.includes(p.id) ? 0.7 + 0.3 * Math.sin(t * 5) : p.id === st.hovered ? 0.55 : 0
@@ -137,7 +157,7 @@ export default function Body() {
       return best?.id ?? skinHit
     }
     // debug/automation hook (used by screenshot scripts)
-    ;(window as unknown as Record<string, unknown>).__jasad = { pickAt: (x: number, y: number) => pick({ clientX: x, clientY: y } as MouseEvent), parts, store: useStore }
+    ;(window as unknown as Record<string, unknown>).__jasad = { pickAt: (x: number, y: number) => pick({ clientX: x, clientY: y } as MouseEvent), parts, store: useStore, shared: SHARED, gsap }
     let last = 0, raf = 0
     let down = { x: 0, y: 0, t: 0 }
     let lastTap = { t: 0, id: null as string | null }

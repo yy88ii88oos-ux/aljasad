@@ -2,7 +2,7 @@ import * as THREE from 'three'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js'
 import { computeBoundsTree, acceleratedRaycast } from 'three-mesh-bvh'
-import { STRUCTURES, isMobile, type Group, type Structure } from '../data'
+import { STRUCTURES, lightModels, type Group, type Structure } from '../data'
 import { makeMaterial, makeXray } from './materials'
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -28,7 +28,7 @@ export const root = new THREE.Group()
 root.name = 'body'
 
 const loader = new GLTFLoader().setMeshoptDecoder(MeshoptDecoder)
-const LOD = isMobile ? '.m' : ''
+const LOD = lightModels ? '.m' : ''
 const BASE = import.meta.env.BASE_URL + 'models/'
 
 // right-arm structures bend at the elbow in the «arm» tour
@@ -127,9 +127,11 @@ function register(scene: THREE.Object3D) {
 export function computeExplode() {
   for (const p of parts.values()) {
     const c = p.center
-    const d = new THREE.Vector3(c.x * 1.6, c.y * 0.55, c.z * 1.4 + (p.s.group === 'skeleton' ? -0.05 : 0.05))
-    const layerPush = { skin: 0.35, superficial: 0.22, deep: 0.12, organs: 0.0, bones: -0.08 }[p.s.layer]
-    d.add(new THREE.Vector3(Math.sign(c.x) * Math.abs(layerPush) * 0.3, 0, layerPush))
+    // radial spread grows toward the trunk (organs fan out), limbs move less
+    const trunk = Math.abs(c.x) < 0.17 && c.y > -0.05 && c.y < 0.62
+    const d = new THREE.Vector3(c.x * (trunk ? 2.2 : 0.7), (c.y - 0.3) * (trunk ? 0.6 : 0.15), c.z * (trunk ? 2.4 : 0.8))
+    const layerPush = { skin: 0.35, superficial: 0.24, deep: 0.14, organs: 0.1, bones: -0.06 }[p.s.layer]
+    d.z += layerPush
     p.explodeDir.copy(d)
   }
 }
@@ -155,7 +157,7 @@ async function fetchWithProgress(url: string, onBytes: (loaded: number, total: n
 }
 
 // approximate sizes (bytes) used until Content-Length is known
-const EST: Record<Group, number> = isMobile
+const EST: Record<Group, number> = lightModels
   ? { skeleton: 1.4e6, skin: 0.3e6, organs: 0.6e6, cardio: 0.5e6, nervous: 0.5e6, muscles: 2.4e6 }
   : { skeleton: 3.9e6, skin: 1.0e6, organs: 1.8e6, cardio: 1.2e6, nervous: 1.5e6, muscles: 6.7e6 }
 

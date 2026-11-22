@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import Scene, { flyHome } from './three/Scene'
 import { loadGroups, buildBVHIdle } from './three/registry'
-import { useStore, type Mode, type TourId } from './store'
+import { useStore, deepLink, type Mode, type TourId } from './store'
 import { SYSTEMS, LAYERS, search, isMobile, type Structure } from './data'
 import Loader from './ui/Loader'
 import InfoCard from './ui/InfoCard'
@@ -16,7 +16,11 @@ function useLoad() {
       .then(() => {
         if (!alive) return
         set({ progress: 1 })
-        setTimeout(() => set({ ready: true }), 250)
+        setTimeout(() => {
+          set({ ready: true })
+          if (deepLink.sel) { useStore.getState().select(deepLink.sel, deepLink.fly); if (deepLink.iso) set({ isolated: true }) }
+          if (deepLink.tour) setTimeout(() => set({ tour: deepLink.tour }), 600)
+        }, 250)
         return loadGroups(['muscles'], (f) => set({ streaming: f }))
       })
       .then(() => { set({ streaming: 1 }); buildBVHIdle() })

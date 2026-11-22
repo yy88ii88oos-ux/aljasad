@@ -64,3 +64,5 @@ export function search(q: string, limit = 12) {
 }
 
 export const isMobile = typeof window !== 'undefined' && (window.matchMedia('(pointer: coarse)').matches || window.innerWidth < 820)
+// ?lod=m forces the light models (handy on weak GPUs)
+export const lightModels = isMobile || (typeof location !== 'undefined' && /[?&]lod=m/.test(location.search))

@@ -1,10 +1,13 @@
-import { useEffect, useMemo, useRef } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Canvas, useFrame, useThree } from '@react-three/fiber'
-import { Environment, Lightformer, OrbitControls } from '@react-three/drei'
+import { Environment, Lightformer, OrbitControls, PerformanceMonitor } from '@react-three/drei'
 import { EffectComposer, Bloom, SSAO, DepthOfField, Vignette, ToneMapping } from '@react-three/postprocessing'
 import { BlendFunction, ToneMappingMode, type DepthOfFieldEffect } from 'postprocessing'
 import * as THREE from 'three'
 import gsap from 'gsap'
+
+// keep tweens wall-clock accurate even when frames are slow (low-end GPUs, background tabs)
+gsap.ticker.lagSmoothing(0)
 import type { OrbitControls as OrbitControlsImpl } from 'three-stdlib'
 import Body from './Body'
 import Life from './Life'
@@ -67,9 +70,18 @@ function Rig() {
     const sel = useStore.getState().selected
     if (focusTick && sel) flyToStructure(sel)
   }, [focusTick])
+  // section mode: swing the camera so the cut face is in view
+  const mode = useStore((s) => s.mode)
+  const axis = useStore((s) => s.sectionAxis)
+  useEffect(() => {
+    if (mode !== 'section' || useStore.getState().tour) return
+    const k = isMobile ? 1.35 : 1
+    const v = { x: [1.9, 0.25, 1.5], y: [0.7, 1.9, 1.6], z: [0.5, 0.2, 2.6] }[axis]
+    flyTo(new THREE.Vector3(...v).multiplyScalar(k), new THREE.Vector3(0, axis === 'y' ? -0.1 : 0.02, 0), 1.6)
+  }, [mode, axis])
   useFrame(() => {
     const st = useStore.getState()
-    const want = st.selected && st.focusTick ? 1 : 0
+    const want = st.selected && st.focused ? 1 : 0
     rig.dof += (want - rig.dof) * 0.05
     if (ref.current) ref.current.autoRotate = !st.selected && !st.tour && st.ready
   })
@@ -142,7 +154,7 @@ function Lights() {
 }
 
 const FX = !/[?&]fx=0/.test(location.search)
-function Effects() {
+function Effects({ lite }: { lite: boolean }) {
   const dofRef = useRef<DepthOfFieldEffect>(null)
   useFrame(() => {
     const d = dofRef.current
@@ -150,7 +162,7 @@ function Effects() {
     d.target = rig.focus
     d.bokehScale = rig.dof * 3.2
   })
-  if (isMobile) {
+  if (isMobile || lite) {
     return (
       <EffectComposer multisampling={0}>
         <Bloom mipmapBlur luminanceThreshold={2.2} intensity={0.7} radius={0.6} />
@@ -172,9 +184,12 @@ function Effects() {
 
 export default function Scene() {
   const ready = useStore((s) => s.ready)
+  const maxDpr = Math.min(window.devicePixelRatio || 1, isMobile ? 1.6 : 2)
+  const [dpr, setDpr] = useState(maxDpr)
+  const [lite, setLite] = useState(false)
   return (
     <Canvas
-      dpr={isMobile ? [1, 1.6] : [1, 2]}
+      dpr={dpr}
       gl={{ antialias: false, powerPreference: 'high-performance', toneMapping: FX ? THREE.NoToneMapping : THREE.ACESFilmicToneMapping }}
       camera={{ position: HOME.pos.toArray() as [number, number, number], fov: 38, near: 0.02, far: 80 }}
       style={{ position: 'fixed', inset: 0 }}
@@ -185,7 +200,9 @@ export default function Scene() {
       {ready && <Life />}
       {ready && <Tours />}
       <Rig />
-      {FX && <Effects />}
+      {/* adaptive quality: lower resolution first, then drop SSAO + DoF */}
+      <PerformanceMonitor flipflops={4} onDecline={() => { if (dpr > 1.01) setDpr(Math.max(1, dpr - 0.4)); else setLite(true) }} onIncline={() => setDpr(Math.min(maxDpr, dpr + 0.25))} />
+      {FX && <Effects lite={lite} />}
     </Canvas>
   )
 }

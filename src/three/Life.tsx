@@ -3,6 +3,7 @@ import { useFrame } from '@react-three/fiber'
 import * as THREE from 'three'
 import { FLOW, STRUCTURES, isMobile } from '../data'
 import { parts } from './registry'
+import { CLIP_PLANE } from './materials'
 import { useStore } from '../store'
 import { heartPulse } from './Body'
 
@@ -58,7 +59,7 @@ export default function Life() {
       const big = /aorta|vena cava/.test(s.en)
       streams.push({
         id, pts, len: f.length, speed: vein ? 0.07 : 0.16, artery: !vein, pull: big ? 0.014 : /carotid|subclavian|iliac|brachiocephalic|renal/.test(s.en) ? 0.007 : 0.004,
-        color: vein ? new THREE.Color(0.3, 0.5, 2.6) : new THREE.Color(2.8, 0.2, 0.25),
+        color: vein ? new THREE.Color(0.25, 0.45, 2.0) : new THREE.Color(2.1, 0.15, 0.2),
       })
     }
     const density = isMobile ? 70 : 160 // particles per metre
@@ -137,7 +138,7 @@ export default function Life() {
         const ex = parts.get(s.id)?.mesh.position
         P.setXYZ(i, tmp.x + it.jit.x + (ex?.x || 0), tmp.y + it.jit.y + (ex?.y || 0), tmp.z + it.jit.z + (ex?.z || 0))
         const edge = Math.min(1, it.u * 8, (1 - it.u) * 8)
-        A.setX(i, vcache[it.s] * edge * exposed)
+        A.setX(i, vcache[it.s] * edge * exposed * (CLIP_PLANE.distanceToPoint(tmp) < 0 ? 0 : 1))
       })
       P.needsUpdate = true; A.needsUpdate = true
     }
@@ -149,7 +150,8 @@ export default function Life() {
     const SA = sparks.pts.geometry.attributes.alpha as THREE.BufferAttribute
     for (let i = 0; i < SA.count; i++) {
       const ph = (t * 0.6 + sparks.phases[i]) % 3
-      SA.setX(i, bv * Math.max(0, 1 - Math.abs(ph - 0.15) * 7))
+      tmp.fromBufferAttribute(sparks.pts.geometry.attributes.position as THREE.BufferAttribute, i)
+      SA.setX(i, CLIP_PLANE.distanceToPoint(tmp) < 0 ? 0 : bv * Math.max(0, 1 - Math.abs(ph - 0.15) * 7))
     }
     SA.needsUpdate = true
   })
