@@ -20,6 +20,9 @@ export interface Part {
   target: number // desired visibility 0..1
   glow: number // current highlight 0..1
   ghost: boolean // drawn as Fresnel glass because it hides the selection
+  study?: boolean // built for «جسدي»: only shown inside its study
+  custom?: boolean // transform driven elsewhere (knee ligaments)
+  rot?: { pivot: THREE.Vector3; q: THREE.Quaternion } // rigid rotation about a joint (knee flexion)
   explodeDir: THREE.Vector3
   pulse?: { pivot: THREE.Vector3; kind: 'heart' | 'lung' | 'diaphragm' }
 }
@@ -322,11 +325,18 @@ async function loadGroupsOnce(groups: Group[], onProgress: (f: number) => void, 
 }
 
 // ---- zoom LOD: phones start with the light files; the full-resolution group is swapped in when the camera comes close ----
-const upgraded = new Set<Group>()
+const upgrades = new Map<Group, Promise<void>>()
+let chain: Promise<void> = Promise.resolve()
 export const upgrading = { group: null as Group | null }
-export async function upgradeGroup(g: Group) {
-  if (!lightModels || upgraded.has(g) || upgrading.group) return
-  upgraded.add(g); upgrading.group = g
+// one group at a time; awaiting returns when that group's full-resolution meshes are in place
+export function upgradeGroup(g: Group): Promise<void> {
+  if (!lightModels) return Promise.resolve()
+  // a failed upgrade (network) must not block the ones queued after it
+  if (!upgrades.has(g)) { chain = chain.catch(() => {}).then(() => upgradeNow(g)); upgrades.set(g, chain.catch((e) => console.warn('upgrade', g, e))) }
+  return upgrades.get(g)!
+}
+async function upgradeNow(g: Group) {
+  upgrading.group = g
   try {
     const b64 = import.meta.env.VITE_MODELS_B64 === '1'
     let buf = await fetchWithProgress(BASE + g + '.glb' + (b64 ? '.txt' : ''), () => {})

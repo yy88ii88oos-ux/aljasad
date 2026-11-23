@@ -26,6 +26,11 @@ interface State {
   streaming: number // 0..1 background (muscles) load
   page: 'viewer' | 'sources'
   sound: boolean
+  study: 'clavicle' | 'knee' | null // «جسدي»
+  studyStep: number
+  studyReady: boolean
+  kneeFlex: number // 0..1 of ~110°
+  kneePlay: boolean
   interacting: boolean // the user is orbiting: controls step aside
   dimmed: string[] // translucent structures (card «تعتيم»)
   removed: string[] // finger dissection: structures peeled away, in order (undo pops)
@@ -77,6 +82,11 @@ export const useStore = create<State>((set) => ({
   dimmed: [],
   interacting: false,
   sound: true,
+  study: null,
+  studyStep: 0,
+  studyReady: false,
+  kneeFlex: 0,
+  kneePlay: false,
   ...initial,
   set: (p) => set(p),
   remove: (id) => set((s) => ({ removed: s.removed.includes(id) ? s.removed : [...s.removed, id], selected: s.selected === id ? null : s.selected, focused: s.selected === id ? false : s.focused, isolated: false })),

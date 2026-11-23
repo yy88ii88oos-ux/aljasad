@@ -12,6 +12,7 @@ import type { OrbitControls as OrbitControlsImpl } from 'three-stdlib'
 import Body from './Body'
 import Life from './Life'
 import Tours from './Tours'
+import StudyRig from './StudyRig'
 import { parts, upgradeGroup } from './registry'
 import { STRUCTURES, isMobile, lightModels, type Group } from '../data'
 import { useStore } from '../store'
@@ -317,6 +318,7 @@ export default function Scene() {
       <Body />
       {ready && <Life />}
       {ready && <Tours />}
+      {ready && <StudyRig />}
       <Rig />
       {/* adaptive quality: lower resolution first, then drop SSAO + DoF */}
       <PerformanceMonitor flipflops={4} onDecline={() => { if (dpr > minDpr + 0.01) setDpr(Math.max(minDpr, dpr - 0.25)); else setLite(true) }} onIncline={() => setDpr(Math.min(maxDpr, dpr + 0.25))} />

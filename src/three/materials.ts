@@ -30,6 +30,9 @@ const VEIN = /vein|vena|sinus/
 export const TENDON = /tendon|aponeurosis|linea alba|retinaculum|fascia lata|iliotibial|ligament|tract|membrane|tendinous|galea/
 function baseColor(s: Structure): string {
   const n = s.en
+  if (/titanium|fixation screws/.test(s.en)) return '#D9DDE3'
+  if (/brachial plexus/.test(s.en)) return PALETTE.nerve
+  if (/meniscus/.test(s.en)) return '#BFDDEA'
   if (s.en === 'subcutaneous fat') return '#E8BE52'
   if (/ cornea$/.test(s.en)) return '#E8F4FF'
   if (/ lens of eyeball$/.test(s.en)) return '#F3E3A8'
@@ -271,8 +274,9 @@ if (uGlow > 0.001) { float rim = pow(1.0 - abs(dot(normalize(normal), normalize(
 #include <dithering_fragment>
 `
 
-export type Kind = 'bone' | 'muscle' | 'organ' | 'vessel' | 'brain' | 'skin' | 'tooth' | 'tissue' | 'eye' | 'fat' | 'clear'
+export type Kind = 'bone' | 'muscle' | 'organ' | 'vessel' | 'brain' | 'skin' | 'tooth' | 'tissue' | 'eye' | 'fat' | 'clear' | 'metal'
 export function kindOf(s: Structure): Kind {
+  if (/titanium|fixation screws/.test(s.en)) return 'metal'
   if (s.en === 'subcutaneous fat') return 'fat'
   if (/ (cornea|vitreous body|lens of eyeball)$/.test(s.en)) return 'clear'
   if (s.group === 'skin') return 'skin'
@@ -305,6 +309,10 @@ export function makeMaterial(s: Structure, eye?: EyeInfo): THREE.MeshPhysicalMat
         opacity: cornea ? 0.12 : lens ? 0.55 : 0.22, side: cornea ? THREE.FrontSide : THREE.DoubleSide })
       break
     }
+    case 'metal':
+      // anodised-free titanium: fully metallic, brushed (moderate roughness), mirror-like clearcoat
+      Object.assign(m, { metalness: 0.85, roughness: 0.32, clearcoat: 0.7, clearcoatRoughness: 0.1, envMapIntensity: 3.0, sheen: 0 })
+      break
     case 'tooth':
       Object.assign(m, { roughness: 0.3, clearcoat: 0.8, clearcoatRoughness: 0.2 })
       break

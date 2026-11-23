@@ -8,6 +8,7 @@ import Loader from './ui/Loader'
 import InfoCard from './ui/InfoCard'
 import Sources from './ui/Sources'
 import Atlas from './ui/Atlas'
+import MyBodyPanel, { openStudy } from './ui/MyBody'
 
 function useLoad() {
   const set = useStore((s) => s.set)
@@ -26,6 +27,8 @@ function useLoad() {
           if (deepLink.tour) setTimeout(() => set({ tour: deepLink.tour }), 600)
           const cut = new URLSearchParams(location.search).get('cut') as 'eye' | 'heart' | null
           if (cut) setTimeout(() => openCut(cut), 400)
+          const my = new URLSearchParams(location.search).get('my') as 'clavicle' | 'knee' | null
+          if (my) setTimeout(() => openStudy(my), 400)
         }, 250)
         return loadGroups(['muscles'], (f) => set({ streaming: f }))
       })
@@ -199,6 +202,7 @@ export default function App() {
   const ready = useStore((s) => s.ready)
   const streaming = useStore((s) => s.streaming)
   const interacting = useStore((s) => s.interacting)
+  const study = useStore((s) => s.study)
   const [atlas, setAtlas] = useState(false)
   const set = useStore((s) => s.set)
   useEffect(() => {
@@ -209,7 +213,7 @@ export default function App() {
   return (
     <>
       <Scene />
-      <div className={'ui' + (ready ? ' ready' : '') + (interacting ? ' interacting' : '')} hidden={BARE}>
+      <div className={'ui' + (ready ? ' ready' : '') + (interacting ? ' interacting' : '') + (study ? ' studying' : '')} hidden={BARE}>
         <header className="top">
           <button className="brand" onClick={() => { set({ selected: null, isolated: false, tour: null }); flyHome() }} aria-label="الجسد — العودة للعرض الكامل">
             <svg viewBox="0 0 64 64" aria-hidden><path d="M32 52S10 39 10 24a11 11 0 0 1 22-3 11 11 0 0 1 22 3c0 15-22 28-22 28z" /><path className="ln" d="M12 32h12l4-8 5 16 4-8h15" /></svg>
@@ -228,6 +232,7 @@ export default function App() {
         <InfoCard />
         <ToursBar />
         <DissectBar />
+        <MyBodyPanel />
         <Dock />
         {ready && streaming < 1 && <div className="stream glass">تحميل العضلات… {Math.round(streaming * 100)}%</div>}
       </div>

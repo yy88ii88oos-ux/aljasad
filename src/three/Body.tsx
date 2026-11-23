@@ -3,6 +3,7 @@ import { useFrame, useThree } from '@react-three/fiber'
 import * as THREE from 'three'
 import gsap from 'gsap'
 import { parts, root, type Part } from './registry'
+import { STUDIES } from './myBody'
 import { SHARED, CLIP_PLANE } from './materials'
 import { useStore } from '../store'
 import { LAYER_INDEX } from '../data'
@@ -102,16 +103,20 @@ export default function Body() {
     const breath = st.life ? breathPhase(t) : 0
     const xray = st.mode === 'xray'
 
+    const study = st.study ? STUDIES[st.study] : null
     for (const p of parts.values()) {
       const s = p.s
       // ---------- visibility target ----------
       let target = st.systems[s.system] === false ? 0 : 1
+      if (p.study && !study) target = 0
       if (!xray) {
         const li = LAYER_INDEX[s.layer]
         if (s.layer === 'skin') { if (st.depth > 0) target = 0 }
         else if (li < st.depth) target = 0
       }
       if (removed?.has(p.id)) target = 0
+      // «جسدي»: only the study's structures, peeled by its own steps
+      if (study) { const lv = study.levels[p.id]; target = lv === undefined || lv < st.studyStep || removed?.has(p.id) ? 0 : 1 }
       let ghost = false
       if (st.isolated && st.selected) target = p.id === st.selected ? 1 : 0
       else if (sel && p !== sel && target > 0 && ghosts.has(p.id)) ghost = true
@@ -151,6 +156,13 @@ export default function Body() {
       }
 
       // ---------- transforms: explode + life ----------
+      if (p.custom) continue
+      if (p.rot) {
+        p.mesh.quaternion.copy(p.rot.q)
+        p.mesh.position.copy(p.rot.pivot).sub(tmp.copy(p.rot.pivot).applyQuaternion(p.rot.q))
+        p.mesh.scale.setScalar(1)
+        continue
+      } else if (p.mesh.quaternion.w !== 1) p.mesh.quaternion.identity()
       tmp.copy(p.explodeDir).multiplyScalar(ex)
       let sc = 1
       if (p.pulse) {

@@ -2,6 +2,7 @@ import { STRUCTURES, SYSTEMS } from '../data'
 import { useStore } from '../store'
 import { flyTo, HOME } from '../three/Scene'
 import * as THREE from 'three'
+import { openStudy } from './MyBody'
 
 const THUMB: Record<string, string> = Object.fromEntries(SYSTEMS.map((s) => [s.key, import.meta.env.BASE_URL + 'thumbs/' + s.key + '.webp']))
 const COUNT: Record<string, number> = {}
@@ -28,6 +29,17 @@ export default function Atlas({ onClose }: { onClose: () => void }) {
     <div className="atlas" role="dialog" aria-label="فهرس الأجهزة" onClick={onClose}>
       <div className="atlas-in glass" onClick={(e) => e.stopPropagation()}>
         <div className="atlas-head"><h2>فهرس الجسم</h2><button className="card-x" onClick={onClose} aria-label="إغلاق">×</button></div>
+        <h3 className="atlas-sec">جسدي</h3>
+        <div className="atlas-grid my">
+          {([['clavicle', 'الترقوة اليمنى', 'مع صفيحة التثبيت'], ['knee', 'الركبة اليسرى', 'بأدق التفاصيل']] as const).map(([k, t, sub]) => (
+            <button key={k} className="atlas-card" style={{ ['--c' as string]: '#ffcf86' }} onClick={() => { onClose(); openStudy(k) }}>
+              <img src={import.meta.env.BASE_URL + 'thumbs/my-' + k + '.webp'} alt="" loading="lazy" width={240} height={320} />
+              <span><i />{t}</span>
+              <small>{sub}</small>
+            </button>
+          ))}
+        </div>
+        <h3 className="atlas-sec">أجهزة الجسم</h3>
         <div className="atlas-grid">
           {SYSTEMS.filter((s) => s.key !== 'genital').map((s) => (
             <button key={s.key} className="atlas-card" style={{ ['--c' as string]: s.color }} onClick={() => open(s.key)}>
