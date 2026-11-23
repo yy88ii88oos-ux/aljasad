@@ -94,9 +94,9 @@ function prepare(mesh: THREE.Mesh, s: Structure) {
     poseGeometry(geo, s)
     const n = geo.attributes.position.count
     if (s.en === 'linea alba') {
-      // a fine white seam rather than a broad band: squeeze it toward the midline, just under the recti's surface
+      // fill the gap between the recti as one white strip (the recti draw its broader upper part), just under their surface
       const P = geo.attributes.position as THREE.BufferAttribute
-      for (let i = 0; i < n; i++) { P.setX(i, s.c[0] + (P.getX(i) - s.c[0]) * 0.3); P.setZ(i, P.getZ(i) - 0.0008) }
+      for (let i = 0; i < n; i++) { P.setX(i, s.c[0] + (P.getX(i) - s.c[0]) * 0.5); P.setZ(i, P.getZ(i) - 0.0008) }
       geo.computeVertexNormals()
     }
     if (s.group === 'muscles') {

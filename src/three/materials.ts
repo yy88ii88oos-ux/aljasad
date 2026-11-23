@@ -1,6 +1,6 @@
 import * as THREE from 'three'
 import type { Structure } from '../data'
-import { TEX, IRIS, IRIS_ON, type TexName } from './textures'
+import { TEX, IRIS, IRIS_ON, NO_NORMALS, type TexName } from './textures'
 
 // Uniforms shared by every body material (one JS object → one update per frame)
 export const SHARED = {
@@ -115,9 +115,11 @@ uniform sampler2D tAlb; uniform sampler2D tNrm; uniform float uTexScale; uniform
 void jPlane(vec2 uv, float w, inout vec3 alb, inout vec2 dh){
   if (w < 0.01) return;
   alb += texture2D(tAlb, uv).rgb * w;
+#ifndef NONRM
   vec3 nm = texture2D(tNrm, uv).xyz * 2.0 - 1.0;
   vec2 s = nm.xy / max(nm.z, 0.35);
   dh += w * vec2(s.x * dFdx(uv.x) + s.y * dFdx(uv.y), s.x * dFdy(uv.x) + s.y * dFdy(uv.y));
+#endif
 }
 #endif
 #ifdef EYE
@@ -134,6 +136,38 @@ float jHash(vec3 p){ return fract(sin(dot(p, vec3(12.9898,78.233,37.719)))*43758
 float jNoise(vec3 p){ vec3 i=floor(p), f=fract(p); f=f*f*(3.0-2.0*f);
   return mix(mix(mix(jHash(i),jHash(i+vec3(1,0,0)),f.x),mix(jHash(i+vec3(0,1,0)),jHash(i+vec3(1,1,0)),f.x),f.y),
              mix(mix(jHash(i+vec3(0,0,1)),jHash(i+vec3(1,0,1)),f.x),mix(jHash(i+vec3(0,1,1)),jHash(i+vec3(1,1,1)),f.x),f.y),f.z); }
+#ifdef ABDO
+// rectus abdominis plan (object space, metres): linea alba down the midline + three tendinous intersections —
+// at the umbilicus, just below the costal margin and one between. Segments between them bulge.
+// Shared by the recti (drawn) and the skin / fat over them (a faint shadow of the same relief).
+const vec3 ABY = vec3(0.163, 0.240, 0.318);
+float abdoField(vec3 o, out float line){
+  float ax = abs(o.x);
+  float aa = fwidth(o.y) + fwidth(o.x);
+  float dl = 1.0, l = 0.0;
+  for (int i = 0; i < 3; i++) {
+    // slightly zig-zag, rising a little toward the flank, never perfectly ruled
+    float y0 = ABY[i] + ax * 0.08 + (jNoise(vec3(ax * 45.0, float(i) * 7.0, 0.0)) - 0.5) * 0.011 + (jNoise(vec3(ax * 160.0, float(i) * 3.0, 1.0)) - 0.5) * 0.0015;
+    float d = abs(o.y - y0);
+    dl = min(dl, d);
+    // thinner and fading toward the lateral border (intersections rarely cross the whole muscle cleanly)
+    float hwI = 0.0013 * (1.0 - 0.45 * smoothstep(0.03, 0.065, ax));
+    float fadeI = 1.0 - smoothstep(0.05, 0.072, ax + (jNoise(vec3(float(i) * 11.0, o.y * 300.0, 2.0)) - 0.5) * 0.01);
+    l = max(l, (1.0 - smoothstep(hwI, hwI + aa + 0.001, d)) * fadeI);
+  }
+  // linea alba: broad above the umbilicus, a thin seam below it
+  float hw = mix(0.0035, 0.0075, smoothstep(0.12, 0.2, o.y));
+  float dm = ax - hw;
+  l = max(l, 1.0 - smoothstep(0.0, aa + 0.0012, dm));
+  line = l;
+  // height (0 in the grooves, 1 on the crown of each segment)
+  return smoothstep(0.0, 0.022, dl) * smoothstep(0.0, 0.016, dm);
+}
+float abdoMask(vec3 o){
+  float xl = mix(0.062, 0.08, smoothstep(0.05, 0.3, o.y));
+  return (1.0 - smoothstep(xl - 0.012, xl + 0.004, abs(o.x))) * smoothstep(0.0, 0.03, o.y) * (1.0 - smoothstep(0.35, 0.385, o.y)) * smoothstep(0.03, 0.06, o.z);
+}
+#endif
 #ifdef FIBER
 float fiberH(vec3 p, vec3 d){
   vec3 a = normalize(abs(d.y) < 0.9 ? cross(d, vec3(0,1,0)) : cross(d, vec3(1,0,0)));
@@ -284,6 +318,32 @@ roughnessFactor = clamp(roughnessFactor * (0.78 + 0.45 * fh), 0.18, 1.0);
   normal = jPerturb( -vViewPosition, normal, vec2( dFdx(bulge), dFdy(bulge) ) * 0.5, faceDirection );
 }
 #endif
+#ifdef ABDO
+{
+  float ln, h = abdoField(vObj, ln);
+#ifdef RECTUS
+  // white, slightly sunken tendinous lines; each segment a gentle dome with soft shading toward its edges.
+  // BodyParts3D's external oblique reaches the midline over the rectus: it carries the same plan there (masked)
+#ifdef RECTUS_OVER
+  float m = abdoMask(vObj);
+#else
+  float m = 1.0;
+#endif
+  float H = (h - 0.55 * ln) * 0.007 * m;
+  normal = jPerturb( -vViewPosition, normal, vec2( dFdx(H), dFdy(H) ), faceDirection );
+  diffuseColor.rgb *= 1.0 - 0.3 * (1.0 - h) * m;
+  vec3 wc = vec3(0.93, 0.91, 0.87) * (0.94 + 0.1 * jNoise(vObj * 900.0));
+  diffuseColor.rgb = mix(diffuseColor.rgb, wc, ln * m);
+  roughnessFactor = mix(roughnessFactor, 0.32, ln * m);
+#else
+  // skin / fat: only a faint echo of the relief underneath
+  float m = abdoMask(vObj);
+  float H = (h - 0.3 * ln) * 0.006 * ABDO * m;
+  normal = jPerturb( -vViewPosition, normal, vec2( dFdx(H), dFdy(H) ), faceDirection );
+  diffuseColor.rgb *= 1.0 - 0.12 * ABDO * m * (1.0 - h);
+#endif
+}
+#endif
 #ifdef EYE
 {
   // procedural eye: sclera, iris with radial stroma, limbal ring, pupil — under a glossy cornea (clearcoat)
@@ -333,6 +393,14 @@ if (uCap > 0.5 && !gl_FrontFacing) { gl_FragColor = vec4(uCapColor, 1.0); }
 if (any(isnan(gl_FragColor)) || any(isinf(gl_FragColor))) gl_FragColor = vec4(diffuseColor.rgb * 0.4, diffuseColor.a);
 // only intentional glow (emissive) may exceed the bloom threshold; lit highlights are capped below it
 { vec3 lit = max(gl_FragColor.rgb - totalEmissiveRadiance, vec3(0.0)); gl_FragColor.rgb = min(lit, vec3(1.6)) + min(totalEmissiveRadiance, vec3(8.0)); }
+#ifdef RIM
+// soft cool rim (Fresnel on the geometric normal: steady, no texture noise) to lift the silhouette off the navy backdrop
+if (uCap < 0.5 || gl_FrontFacing) {
+  float fr = 1.0 - abs(dot(normalize(vNormal), normalize(vViewPosition)));
+  fr = smoothstep(0.45, 1.0, fr);
+  gl_FragColor.rgb += vec3(0.5, 0.68, 1.0) * fr * fr * RIM;
+}
+#endif
 gl_FragColor.rgb += vec3(1.0, 0.62, 0.32) * jEdge * 3.0;
 // selection: a soft luminous rim (Fresnel) rather than a flat flash
 if (uGlow > 0.001) { float rim = pow(1.0 - abs(dot(normalize(normal), normalize(vViewPosition))), 2.2);
@@ -443,8 +511,16 @@ export function makeMaterial(s: Structure, eye?: EyeInfo): THREE.MeshPhysicalMat
   if (tex) {
     delete defines.FIBER; delete defines.ORGANIC; delete defines.BONE; delete defines.FAT
     defines.TEX = ''
+    if (NO_NORMALS) defines.NONRM = ''
     if (tex.name === 'muscle') defines.FIBERTEX = ''
   }
+  // rim strength per tissue (none on glassy or metal parts, or the eye)
+  const rim = ({ skin: 0.32, bone: 0.42, tooth: 0.3, muscle: 0.3, organ: 0.22, vessel: 0.2, brain: 0.22, tissue: 0.28, fat: 0.25 } as Partial<Record<Kind, number>>)[kind]
+  if (rim) defines.RIM = rim.toFixed(2)
+  if (kind === 'muscle' && /rectus abdominis/.test(s.en)) { defines.ABDO = '1.0'; defines.RECTUS = '' }
+  if (kind === 'muscle' && /external oblique$/.test(s.en)) { defines.ABDO = '1.0'; defines.RECTUS = ''; defines.RECTUS_OVER = '' }
+  if (kind === 'skin') defines.ABDO = '1.4'
+  if (kind === 'fat') defines.ABDO = '1.4'
   m.defines = { ...(m.defines || {}), ...defines }
   // deeper layers and thin sheets (tendons, aponeuroses, cartilage) yield to the surface in front of them
   const off = ({ skin: 0, superficial: 0, deep: 1, organs: 2, bones: 3 } as Record<string, number>)[s.layer] + (kind === 'tissue' ? 1.5 : 0)
@@ -464,7 +540,8 @@ export function makeMaterial(s: Structure, eye?: EyeInfo): THREE.MeshPhysicalMat
       .replace('#include <normal_fragment_maps>', FRAG_NORMAL)
       .replace('#include <dithering_fragment>', FRAG_END)
   }
-  m.customProgramCacheKey = () => 'jasad-' + kind + (tex ? '-tex' + (tex.name === 'muscle' ? 'f' : '') : '')
+  const key = 'jasad-' + kind + (tex ? '-tex' + (tex.name === 'muscle' ? 'f' : '') : '') + ('RECTUS' in defines ? '-rectus' + ('RECTUS_OVER' in defines ? 'o' : '') : '') + (NO_NORMALS ? '-nn' : '')
+  m.customProgramCacheKey = () => key
   return m
 }
 

@@ -4,7 +4,7 @@ import { initAudio, setSound, setHeartbeat } from './audio'
 import { loadGroups, buildBVHIdle } from './three/registry'
 import { loadTextures } from './three/textures'
 import { useStore, deepLink, type Mode, type TourId } from './store'
-import { SYSTEMS, LAYERS, LAYER_INDEX, STRUCTURES, search, isMobile, type Structure } from './data'
+import { SYSTEMS, LAYERS, LAYER_INDEX, STRUCTURES, search, isMobile, type Structure, type Group } from './data'
 import Loader from './ui/Loader'
 import InfoCard from './ui/InfoCard'
 import Sources from './ui/Sources'
@@ -16,22 +16,32 @@ function useLoad() {
   useEffect(() => {
     let alive = true
     // first paint: skin, bones, organs, heart & vessels, brain. Muscles stream afterwards.
-    loadGroups(['skin', 'skeleton', 'organs', 'cardio', 'nervous'], (f) => alive && set({ progress: f }))
+    // phones: only the skin before the first frame, then each group alone (one GLB in memory at a time)
+    const first: Group[] = isMobile ? ['skin'] : ['skin', 'skeleton', 'organs', 'cardio', 'nervous']
+    const rest: Group[] = isMobile ? ['skeleton', 'muscles', 'organs', 'cardio', 'nervous'] : ['muscles']
+    loadGroups(first, (f) => alive && set({ progress: f }))
       .then(() => {
         if (!alive) return
         set({ progress: 1 })
-        setTimeout(() => {
-          set({ ready: true })
-          // cinematic opening when the page is opened plainly (no deep link)
-          if (!location.search.replace(/^\?/, '').replace(/(^|&)lod=m/, '')) intro()
+        const links = () => {
           if (deepLink.sel) { useStore.getState().select(deepLink.sel, deepLink.fly); if (deepLink.iso) set({ isolated: true }) }
           if (deepLink.tour) setTimeout(() => set({ tour: deepLink.tour }), 600)
           const cut = new URLSearchParams(location.search).get('cut') as 'eye' | 'heart' | null
           if (cut) setTimeout(() => openCut(cut), 400)
           const my = new URLSearchParams(location.search).get('my') as 'clavicle' | 'knee' | null
           if (my) setTimeout(() => openStudy(my), 400)
+        }
+        setTimeout(() => {
+          set({ ready: true })
+          // cinematic opening when the page is opened plainly (no deep link); phones skip it (the heart streams in later)
+          if (!isMobile && !location.search.replace(/^\?/, '').replace(/(^|&)lod=m/, '')) intro()
+          if (!isMobile) links()
         }, 250)
-        return loadGroups(['muscles'], (f) => set({ streaming: f }))
+        // phones: the skin's texture right away (small), the other tissues after it
+        if (isMobile) loadTextures()
+        let chain: Promise<unknown> = Promise.resolve()
+        rest.forEach((g, i) => { chain = chain.then(() => loadGroups([g], (f) => set({ streaming: Math.min(0.999, (i + f) / rest.length) }))) })
+        return chain.then(() => { if (isMobile && alive) links() })
       })
       .then(() => { set({ streaming: 1 }); buildBVHIdle(); loadTextures() })
       .catch((e) => console.error(e))
