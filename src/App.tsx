@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import Scene, { flyHome } from './three/Scene'
 import { loadGroups, buildBVHIdle } from './three/registry'
 import { useStore, deepLink, type Mode, type TourId } from './store'
-import { SYSTEMS, LAYERS, STRUCTURES, search, isMobile, type Structure } from './data'
+import { SYSTEMS, LAYERS, LAYER_INDEX, STRUCTURES, search, isMobile, type Structure } from './data'
 import Loader from './ui/Loader'
 import InfoCard from './ui/InfoCard'
 import Sources from './ui/Sources'
@@ -36,7 +36,7 @@ function SearchBox() {
   const set = useStore((s) => s.set)
   const results = useMemo(() => search(q), [q])
   const choose = (s: Structure) => {
-    const depth = { skin: 0, superficial: 1, deep: 2, organs: 3, bones: 4 }[s.layer]
+    const depth = LAYER_INDEX[s.layer]
     const st = useStore.getState()
     set({ depth: Math.min(st.depth, depth), mode: st.mode === 'explode' ? 'layers' : st.mode, systems: { ...st.systems, [s.system]: true } })
     select(s.id, true)
@@ -68,7 +68,7 @@ function SystemsMenu() {
   const toggle = useStore((s) => s.toggleSystem)
   const set = useStore((s) => s.set)
   const [open, setOpen] = useState(!isMobile)
-  const only = (k: string) => set({ systems: Object.fromEntries(SYSTEMS.map((s) => [s.key, s.key === k])), depth: k === 'skeletal' ? 4 : k === 'muscular' ? 1 : k === 'integumentary' ? 0 : 3 })
+  const only = (k: string) => set({ systems: Object.fromEntries(SYSTEMS.map((s) => [s.key, s.key === k])), depth: k === 'skeletal' ? 5 : k === 'muscular' ? 2 : k === 'integumentary' ? 0 : 4 })
   return (
     <nav className={'systems glass' + (open ? ' open' : '')} aria-label="الأجهزة">
       <button className="systems-head" onClick={() => setOpen(!open)} aria-expanded={open}>
@@ -76,7 +76,7 @@ function SystemsMenu() {
       </button>
       {open && (
         <ul>
-          {SYSTEMS.map((s) => (
+          {SYSTEMS.filter((s) => s.key !== 'genital').map((s) => (
             <li key={s.key} className={systems[s.key] ? 'on' : ''}>
               <button onClick={() => toggle(s.key)} style={{ ['--c' as string]: s.color }} aria-pressed={systems[s.key]}>
                 <i />{s.ar}
@@ -84,7 +84,10 @@ function SystemsMenu() {
               <button className="solo" onClick={() => only(s.key)} title="إظهار هذا الجهاز فقط" aria-label={'إظهار ' + s.ar + ' فقط'}>◉</button>
             </li>
           ))}
-          <li className="all"><button onClick={() => set({ systems: Object.fromEntries(SYSTEMS.map((s) => [s.key, true])) })}>إظهار الكل</button></li>
+          <li className="all"><button onClick={() => set({ systems: Object.fromEntries(SYSTEMS.map((s) => [s.key, s.key === 'genital' ? systems.genital : true])) })}>إظهار الكل</button></li>
+          <li className="setting">
+            <label><input type="checkbox" checked={!!systems.genital} onChange={() => toggle('genital')} /> إظهار الأعضاء التناسلية</label>
+          </li>
         </ul>
       )}
     </nav>

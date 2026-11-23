@@ -98,7 +98,7 @@ function Rig() {
       if (lightModels && d < 0.9 && useStore.getState().streaming >= 1) {
         const st = useStore.getState()
         const sel = st.selected ? STRUCTURES[st.selected]?.group : undefined
-        const byDepth: Group[][] = [['skin', 'muscles'], ['muscles'], ['muscles', 'skeleton'], ['organs', 'cardio', 'nervous'], ['skeleton']]
+        const byDepth: Group[][] = [['skin', 'muscles'], ['muscles'], ['muscles'], ['muscles', 'skeleton'], ['organs', 'cardio', 'nervous'], ['skeleton']]
         const want: Group[] = sel ? [sel] : st.mode === 'xray' ? ['organs', 'cardio'] : byDepth[st.depth] || []
         for (const g of want) void upgradeGroup(g)
       }

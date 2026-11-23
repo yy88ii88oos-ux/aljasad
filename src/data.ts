@@ -1,13 +1,22 @@
 import structuresJson from '../data/structures.json'
 import flowJson from '../data/flow.json'
 
-export type Layer = 'skin' | 'superficial' | 'deep' | 'organs' | 'bones'
+export type Layer = 'skin' | 'fat' | 'superficial' | 'deep' | 'organs' | 'bones'
 export type Group = 'skin' | 'skeleton' | 'muscles' | 'cardio' | 'nervous' | 'organs'
 export interface Structure {
   id: string; ar: string; en: string; la?: string; system: string; group: Group; layer: Layer; side: string | null
   fn: string; fact: string; connected: string[]; c: [number, number, number]; min: [number, number, number]; max: [number, number, number]
 }
 export const STRUCTURES = structuresJson as unknown as Record<string, Structure>
+// generated layer (not in BodyParts3D): subcutaneous fat, shaped from the skin surface
+{
+  const sk = STRUCTURES['FMA7163']
+  if (sk) STRUCTURES['FAT'] = {
+    ...sk, id: 'FAT', ar: 'النسيج الدهني تحت الجلد', en: 'subcutaneous fat', la: 'Panniculus adiposus (tela subcutanea)', layer: 'fat', connected: ['FMA7163'],
+    fn: 'يخزّن الطاقة ويعزل الحرارة ويبطّن العضلات والعظام ضد الصدمات، ويفرز هرمونات مثل اللبتين. (هذه الطبقة مولَّدة من سطح الجلد لأن BodyParts3D لا يتضمّن نموذجًا لها.)',
+    fact: 'الدهون ليست مخزنًا خاملًا: إنها عضو صمّاء يرسل إلى الدماغ إشارة الشبع عبر هرمون اللبتين.',
+  }
+}
 export const FLOW = flowJson as unknown as Record<string, { length: number; points: [number, number, number][] }>
 
 export interface SystemMeta { key: string; ar: string; color: string }
@@ -29,12 +38,13 @@ export const SYSTEM_BY_KEY = Object.fromEntries(SYSTEMS.map((s) => [s.key, s]))
 
 export const LAYERS: { key: Layer; ar: string }[] = [
   { key: 'skin', ar: 'الجلد' },
+  { key: 'fat', ar: 'الدهون' },
   { key: 'superficial', ar: 'عضلات سطحية' },
   { key: 'deep', ar: 'عضلات عميقة' },
   { key: 'organs', ar: 'الأعضاء' },
   { key: 'bones', ar: 'العظام' },
 ]
-export const LAYER_INDEX: Record<Layer, number> = { skin: 0, superficial: 1, deep: 2, organs: 3, bones: 4 }
+export const LAYER_INDEX: Record<Layer, number> = { skin: 0, fat: 1, superficial: 2, deep: 3, organs: 4, bones: 5 }
 
 // Arabic search normalisation: strip tashkeel/tatweel, unify hamza forms, ta marbuta, alif maqsura and drop the article «ال»
 export function normalizeAr(s: string) {

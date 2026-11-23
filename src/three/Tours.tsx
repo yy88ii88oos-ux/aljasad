@@ -41,7 +41,7 @@ function buildTour(id: TourId): TourDef | null {
     const descToRenal = desc.filter((p) => p.y >= renalStart.y - 0.005)
     const renal = line('FMA14752', descToRenal[descToRenal.length - 1] || renalStart)
     return {
-      systems: ['cardiovascular', 'respiratory', 'urinary', 'skeletal'], depth: 3, speed: 0.06, color: new THREE.Color(4, 0.35, 0.35),
+      systems: ['cardiovascular', 'respiratory', 'urinary', 'skeletal'], depth: 4, speed: 0.06, color: new THREE.Color(4, 0.35, 0.35),
       offset: new THREE.Vector3(0.12, 0.05, 0.34), size: 0.007,
       segs: [
         { pts: [...leg, ...ci], caption: 'قطرة دم فقيرة بالأكسجين تصعد من الساق عبر الوريد الحرقفي… الأوردة تحمل نحو ثلثي دم الجسم في أي لحظة.', highlight: ['FMA18885', 'FMA21387'] },
@@ -61,7 +61,7 @@ function buildTour(id: TourId): TourDef | null {
     const st = C('FMA7148')
     const duo = C('FMA7206')
     return {
-      systems: ['digestive', 'skeletal', 'endocrine'], depth: 3, speed: 0.07, color: new THREE.Color(3.2, 1.8, 0.6),
+      systems: ['digestive', 'skeletal', 'endocrine'], depth: 4, speed: 0.07, color: new THREE.Color(3.2, 1.8, 0.6),
       offset: new THREE.Vector3(0.14, 0.04, 0.36), size: 0.009,
       segs: [
         { pts: [mouth.clone().add(new THREE.Vector3(0, 0, 0.04)), mouth, mouth.clone().add(new THREE.Vector3(0, -0.04, -0.03))], caption: 'تبدأ الرحلة في الفم: الأسنان تقطع وتطحن، واللعاب يبدأ هضم النشويات.', highlight: ['FMA46841', 'FMA52748'] },
@@ -123,7 +123,7 @@ export default function Tours() {
         SHARED.uPivot.value.copy(c.divideScalar(n)).add(new THREE.Vector3(0, 0.012, 0))
         SHARED.uAxis.value.set(-1, 0, 0.18).normalize()
       }
-      st.set({ systems: showOnly(['skeletal', 'muscular']), depth: 1, mode: 'layers', caption: ARM_CAPTIONS[0], highlight: [] })
+      st.set({ systems: showOnly(['skeletal', 'muscular']), depth: 2, mode: 'layers', caption: ARM_CAPTIONS[0], highlight: [] })
       const piv = SHARED.uPivot.value
       const target = piv.clone().add(new THREE.Vector3(0, 0.06, 0.06))
       flyTo(target.clone().add(new THREE.Vector3(-0.55, 0.12, 0.62).multiplyScalar(isMobile ? 1.3 : 1)), target, 2.2)

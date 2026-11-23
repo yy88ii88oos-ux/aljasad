@@ -98,8 +98,73 @@ function prepare(mesh: THREE.Mesh, s: Structure) {
       for (let i = 0; i < n; i++) { arr[i * 2] = 1; arr[i * 2 + 1] = bulge }
       geo.setAttribute('armw', new THREE.BufferAttribute(arr, 2))
     }
+  if (s.group === 'skin') genitalMorph(geo)
   return geo
 }
+
+// External genitalia are hidden by default: skin over them morphs (gpos/gnor) into a smooth harmonic surface spanned by
+// the surrounding skin — no hole, no stand-in shape. Weight from distance to the genital organs' bounds.
+const GEN_IDS = ['FMA18247', 'FMA19617nsn', 'FMA19618', 'FMA7211', 'FMA7212', 'FMA18256', 'FMA18257']
+function genitalMorph(geo: THREE.BufferGeometry) {
+  const P = geo.attributes.position as THREE.BufferAttribute
+  const n = P.count
+  const boxes = GEN_IDS.map((id) => STRUCTURES[id]).filter(Boolean).map((g) => new THREE.Box3(new THREE.Vector3(...g.min), new THREE.Vector3(...g.max)))
+  const gpos = new Float32Array(P.array as Float32Array)
+  const free = new Uint8Array(n)
+  const v = new THREE.Vector3()
+  let nFree = 0
+  for (let i = 0; i < n; i++) {
+    v.fromBufferAttribute(P, i)
+    if (v.y > -0.015 || v.z < 0.0) continue
+    let d = Infinity
+    for (const b of boxes) d = Math.min(d, b.distanceToPoint(v))
+    if (d < 0.006) { free[i] = 1; nFree++ }
+  }
+  if (nFree && geo.index) {
+    // adjacency of free vertices, then Jacobi relaxation with the rest of the skin as fixed boundary
+    const I = geo.index.array
+    const nb: number[][] = []
+    for (let t = 0; t < I.length; t += 3) for (let k = 0; k < 3; k++) {
+      const a = I[t + k], b = I[t + ((k + 1) % 3)]
+      if (free[a]) (nb[a] ||= []).push(b)
+      if (free[b]) (nb[b] ||= []).push(a)
+    }
+    const ids: number[] = []
+    for (let i = 0; i < n; i++) if (free[i] && nb[i]) ids.push(i)
+    const tmpP = new Float32Array(gpos)
+    for (let it = 0; it < 220; it++) {
+      for (const i of ids) {
+        let x = 0, y = 0, z = 0
+        for (const j of nb[i]) { x += gpos[j * 3]; y += gpos[j * 3 + 1]; z += gpos[j * 3 + 2] }
+        const k = nb[i].length
+        tmpP[i * 3] = x / k; tmpP[i * 3 + 1] = y / k; tmpP[i * 3 + 2] = z / k
+      }
+      for (const i of ids) { gpos[i * 3] = tmpP[i * 3]; gpos[i * 3 + 1] = tmpP[i * 3 + 1]; gpos[i * 3 + 2] = tmpP[i * 3 + 2] }
+    }
+  }
+  const g2 = new THREE.BufferGeometry()
+  g2.setAttribute('position', new THREE.BufferAttribute(gpos, 3)); g2.setIndex(geo.index); g2.computeVertexNormals()
+  geo.setAttribute('gpos', new THREE.BufferAttribute(gpos, 3))
+  geo.setAttribute('gnor', g2.attributes.normal)
+}
+
+// Subcutaneous fat is not part of BodyParts3D: it is generated here as a lobulated shell just under the skin
+function makeFat(skin: THREE.BufferGeometry) {
+  const P = skin.attributes.position as THREE.BufferAttribute, N = skin.attributes.normal as THREE.BufferAttribute
+  const G = skin.attributes.gpos as THREE.BufferAttribute, GN = skin.attributes.gnor as THREE.BufferAttribute
+  const n = P.count, pos = new Float32Array(n * 3), gp = new Float32Array(n * 3)
+  const IN = 0.0012
+  for (let i = 0; i < n; i++) for (let k = 0; k < 3; k++) {
+    pos[i * 3 + k] = P.getComponent(i, k) - N.getComponent(i, k) * IN
+    gp[i * 3 + k] = G.getComponent(i, k) - GN.getComponent(i, k) * IN
+  }
+  const g = new THREE.BufferGeometry()
+  g.setAttribute('position', new THREE.BufferAttribute(pos, 3)); g.setAttribute('normal', N.clone())
+  g.setAttribute('gpos', new THREE.BufferAttribute(gp, 3)); g.setAttribute('gnor', GN.clone())
+  g.setIndex(skin.index)
+  return g
+}
+export const FAT_ID = 'FAT'
 
 // the BodyParts3D eyeball holds both globes: split by side and fit each centre
 function eyeInfo(geo: THREE.BufferGeometry): EyeInfo {
@@ -120,7 +185,7 @@ function register(scene: THREE.Object3D) {
     if (!mesh.isMesh) return
     const id = mesh.name.replace(/_\d+$/, '') || mesh.parent?.name || ''
     const s = STRUCTURES[id]
-    if (!s) return
+    if (!s || id === FAT_ID || parts.has(id)) return
     const geo = prepare(mesh, s)
     geo.computeBoundingSphere()
     const mat = makeMaterial(s, s.en === 'eyeball' ? eyeInfo(geo) : undefined)
@@ -132,7 +197,17 @@ function register(scene: THREE.Object3D) {
       id, s, mesh, mat, xray: xrayShared, center, fade: 0, target: 1, glow: 0, ghost: false,
       explodeDir: new THREE.Vector3(),
     }
-    if (s.group === 'skin') mesh.renderOrder = 10
+    if (s.group === 'skin') {
+      mesh.renderOrder = 10
+      const fs = STRUCTURES[FAT_ID]
+      if (fs && !parts.has(FAT_ID)) {
+        const fm = new THREE.Mesh(makeFat(geo), makeMaterial(fs))
+        fm.name = FAT_ID; fm.renderOrder = 9
+        fm.geometry.computeBoundingSphere()
+        parts.set(FAT_ID, { id: FAT_ID, s: fs, mesh: fm, mat: fm.material as THREE.MeshPhysicalMaterial, xray: xrayShared, center: new THREE.Vector3(...fs.c), fade: 0, target: 1, glow: 0, ghost: false, explodeDir: new THREE.Vector3() })
+        mesh.parent?.add(fm)
+      }
+    }
     if (HEART.test(s.en) && center.distanceTo(heartPivot) < 0.12) p.pulse = { pivot: heartPivot, kind: 'heart' }
     if (LUNG.test(s.en)) p.pulse = { pivot: center.clone(), kind: 'lung' }
     if (s.en === 'diaphragm') p.pulse = { pivot: center.clone(), kind: 'diaphragm' }
@@ -148,7 +223,7 @@ export function computeExplode() {
     // radial spread grows toward the trunk (organs fan out), limbs move less
     const trunk = Math.abs(c.x) < 0.17 && c.y > -0.05 && c.y < 0.62
     const d = new THREE.Vector3(c.x * (trunk ? 2.2 : 0.7), (c.y - 0.3) * (trunk ? 0.6 : 0.15), c.z * (trunk ? 2.4 : 0.8))
-    const layerPush = { skin: 0.35, superficial: 0.24, deep: 0.14, organs: 0.1, bones: -0.06 }[p.s.layer]
+    const layerPush = { skin: 0.35, fat: 0.3, superficial: 0.24, deep: 0.14, organs: 0.1, bones: -0.06 }[p.s.layer]
     d.z += layerPush
     p.explodeDir.copy(d)
   }

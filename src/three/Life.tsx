@@ -123,7 +123,7 @@ export default function Life() {
     if (!on) return
     const pulse = heartPulse(t)
     // flow is shown once the organs are exposed (or seen through X-ray / isolation / tours)
-    const exposed = st.mode === 'xray' || st.isolated || st.tour === 'blood' || st.depth >= 3 ? 1 : 0
+    const exposed = st.mode === 'xray' || st.isolated || st.tour === 'blood' || st.depth >= 4 ? 1 : 0
     const vis = (id: string) => { const p = parts.get(id); return p && p.mesh.visible ? p.fade : 0 }
     const step = (sys: { pts: THREE.Points; items: { s: number; u: number; v: number; jit: THREE.Vector3 }[] }, list: Stream[], pulsatile: boolean) => {
       const P = sys.pts.geometry.attributes.position as THREE.BufferAttribute

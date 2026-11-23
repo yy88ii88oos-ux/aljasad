@@ -53,7 +53,8 @@ export const deepLink = { sel: Q.get('sel'), fly: Q.get('fly') === '1', tour: Q.
 export const useStore = create<State>((set) => ({
   mode: 'layers',
   depth: 0,
-  systems: Object.fromEntries(SYSTEMS.map((s) => [s.key, true])),
+  // the genital system is off by default; it is switched on from the systems menu's settings
+  systems: Object.fromEntries(SYSTEMS.map((s) => [s.key, s.key !== 'genital'])),
   selected: null,
   hovered: null,
   isolated: false,

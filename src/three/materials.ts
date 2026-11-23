@@ -8,6 +8,7 @@ export const SHARED = {
   uBend: { value: 0 }, // elbow flexion angle (rad) for the arm tour
   uPivot: { value: new THREE.Vector3() },
   uAxis: { value: new THREE.Vector3(1, 0, 0) },
+  uGen: { value: 1 }, // 1 = external genitalia morphed into a smooth surface
 }
 export const CLIP_PLANE = new THREE.Plane(new THREE.Vector3(-1, 0, 0), 1000)
 
@@ -29,6 +30,7 @@ const VEIN = /vein|vena|sinus/
 export const TENDON = /tendon|aponeurosis|linea alba|retinaculum|fascia lata|iliotibial|ligament|tract|membrane|tendinous|galea/
 function baseColor(s: Structure): string {
   const n = s.en
+  if (s.en === 'subcutaneous fat') return '#E8BE52'
   if (s.group === 'skin') return PALETTE.skin
   if (n === 'eyeball') return '#F4F1EA'
   if (s.group === 'skeleton') {
@@ -57,7 +59,10 @@ function baseColor(s: Structure): string {
 
 // ---------------- shader patches ----------------
 const VERT_HEAD = /* glsl */ `
-uniform float uTime; uniform float uBend; uniform vec3 uPivot; uniform vec3 uAxis; uniform float uPush;
+uniform float uTime; uniform float uBend; uniform vec3 uPivot; uniform vec3 uAxis; uniform float uPush; uniform float uGen;
+#ifdef GENMORPH
+attribute vec3 gpos; attribute vec3 gnor;
+#endif
 attribute vec2 armw; attribute vec3 fdir;
 varying vec3 vObj; varying vec3 vFdir;
 vec3 rotAxis(vec3 v, vec3 a, float ang){ float c=cos(ang), s=sin(ang); return v*c + cross(a,v)*s + a*dot(a,v)*(1.0-c); }
@@ -65,8 +70,11 @@ vec3 rotAxis(vec3 v, vec3 a, float ang){ float c=cos(ang), s=sin(ang); return v*
 const VERT_BEGIN = /* glsl */ `
 vec3 transformed = vec3( position );
 vObj = position; vFdir = fdir;
+#ifdef GENMORPH
+transformed = mix(transformed, gpos, uGen);
+#endif
 #ifdef SKINPUSH
-transformed += normal * uPush;
+transformed += objectNormal * uPush;
 #endif
 if (armw.x > 0.5 && uBend > 0.0001) {
   float t = smoothstep(0.015, -0.03, transformed.y - uPivot.y);
@@ -77,6 +85,9 @@ if (armw.x > 0.5 && uBend > 0.0001) {
 `
 const NORMAL_BEGIN = /* glsl */ `
 vec3 objectNormal = vec3( normal );
+#ifdef GENMORPH
+objectNormal = normalize(mix(objectNormal, gnor, uGen));
+#endif
 if (armw.x > 0.5 && uBend > 0.0001) {
   float tN = smoothstep(0.015, -0.03, position.y - uPivot.y);
   objectNormal = rotAxis(objectNormal, uAxis, uBend * tN);
@@ -156,6 +167,45 @@ roughnessFactor = clamp(roughnessFactor * (0.78 + 0.45 * fh), 0.18, 1.0);
   roughnessFactor = clamp(roughnessFactor + 0.2 * pit, 0.0, 1.0);
 }
 #endif
+#ifdef SKIN
+{
+  // pores + mottling, flushed cheeks and lips, faintly glossier lips
+  float fq = fwidth(vObj.x * 2200.0) + fwidth(vObj.y * 2200.0);
+  float pore = smoothstep(0.64, 0.82, jNoise(vObj * 2200.0)) * (1.0 - smoothstep(0.3, 0.8, fq));
+  float mott = jNoise(vObj * 60.0) * 0.6 + jNoise(vObj * 14.0) * 0.4;
+  diffuseColor.rgb *= 0.92 + 0.13 * mott - 0.07 * pore;
+  vec2 ck = (abs(vObj.xy - vec2(0.0, 0.677)) - vec2(0.036, 0.0)) / vec2(0.022, 0.018);
+  float cheeks = exp(-dot(ck, ck)) * smoothstep(0.045, 0.06, vObj.z);
+  vec2 lp = (vObj.xy - vec2(0.0, 0.652)) / vec2(0.023, 0.009);
+  float lips = exp(-dot(lp, lp) * 1.6) * smoothstep(0.07, 0.08, vObj.z);
+  vec2 ns = (vObj.xy - vec2(0.0, 0.688)) / vec2(0.012, 0.016);
+  float nose = exp(-dot(ns, ns)) * smoothstep(0.085, 0.1, vObj.z);
+  diffuseColor.rgb *= mix(vec3(1.0), vec3(1.06, 0.84, 0.82), clamp(cheeks * 0.6 + nose * 0.35, 0.0, 1.0));
+  diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.6, 0.27, 0.28), lips * 0.75);
+  normal = jPerturb( -vViewPosition, normal, vec2( dFdx(-pore), dFdy(-pore) ) * 0.12, faceDirection );
+  roughnessFactor = clamp(roughnessFactor + 0.12 * pore - 0.22 * lips, 0.0, 1.0);
+}
+#endif
+#ifdef FAT
+{
+  // lobulated adipose: Worley cells (~6 mm lobules), soft glossy domes separated by faint septa
+  vec3 q = vObj * 170.0; vec3 iq = floor(q), fq3 = fract(q);
+  float f1 = 9.0, f2 = 9.0;
+  for (int x = -1; x <= 1; x++) for (int y = -1; y <= 1; y++) for (int z = -1; z <= 1; z++) {
+    vec3 o = vec3(float(x), float(y), float(z));
+    vec3 h = vec3(jHash(iq + o), jHash(iq + o + 17.1), jHash(iq + o + 41.7));
+    float d = length(o + h - fq3);
+    if (d < f1) { f2 = f1; f1 = d; } else if (d < f2) f2 = d;
+  }
+  float edge = f2 - f1;
+  float far = smoothstep(0.08, 0.3, fwidth(q.x) + fwidth(q.y));   // lobules too small on screen → plain fat
+  float septa = (1.0 - smoothstep(0.0, 0.12 + fwidth(edge), edge)) * (1.0 - far);
+  float bulge = smoothstep(0.0, 0.5, edge) * (1.0 - far);
+  diffuseColor.rgb *= 0.92 + 0.12 * bulge;
+  diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.97, 0.86, 0.62), septa * 0.35);
+  normal = jPerturb( -vViewPosition, normal, vec2( dFdx(bulge), dFdy(bulge) ) * 0.5, faceDirection );
+}
+#endif
 #ifdef EYE
 {
   // procedural eye: sclera, iris with radial stroma, limbal ring, pupil — under a glossy cornea (clearcoat)
@@ -208,8 +258,9 @@ if (uGlow > 0.001) { float rim = pow(1.0 - abs(dot(normalize(normal), normalize(
 #include <dithering_fragment>
 `
 
-export type Kind = 'bone' | 'muscle' | 'organ' | 'vessel' | 'brain' | 'skin' | 'tooth' | 'tissue' | 'eye'
+export type Kind = 'bone' | 'muscle' | 'organ' | 'vessel' | 'brain' | 'skin' | 'tooth' | 'tissue' | 'eye' | 'fat'
 export function kindOf(s: Structure): Kind {
+  if (s.en === 'subcutaneous fat') return 'fat'
   if (s.group === 'skin') return 'skin'
   if (s.en === 'eyeball') return 'eye'
   if (s.group === 'skeleton') return /tooth/.test(s.en) ? 'tooth' : /cartilage|disk|disc|menisc/.test(s.en) || TENDON.test(s.en) ? 'tissue' : 'bone'
@@ -260,7 +311,16 @@ export function makeMaterial(s: Structure, eye?: EyeInfo): THREE.MeshPhysicalMat
     case 'skin':
       Object.assign(m, { roughness: 0.55, clearcoat: 0.25, clearcoatRoughness: 0.45, side: THREE.FrontSide, sheen: 0.8, sheenColor: new THREE.Color('#ff9f86'), sheenRoughness: 0.5 })
       defines.SKINPUSH = ''
+      defines.SKIN = ''
+      defines.GENMORPH = ''
       defines.SSS = '0.3'
+      break
+    case 'fat':
+      Object.assign(m, { roughness: 0.4, clearcoat: 0.7, clearcoatRoughness: 0.22, sheen: 0.5, sheenColor: new THREE.Color('#fff0b0'), side: THREE.FrontSide })
+      defines.FAT = ''
+      defines.GENMORPH = ''
+      defines.SKINPUSH = '' // sits 0.8 mm under the skin surface, above any muscle that bulges toward it
+      defines.SSS = '0.35'
       break
   }
   m.defines = { ...(m.defines || {}), ...defines }
@@ -271,7 +331,7 @@ export function makeMaterial(s: Structure, eye?: EyeInfo): THREE.MeshPhysicalMat
   const capColor = color.clone().multiplyScalar(kind === 'bone' || kind === 'tooth' ? 0.92 : 0.78)
   m.userData = { baseColor: color.clone(), kind, baseOpacity: m.opacity, transparentBase: m.transparent, u: own }
   m.onBeforeCompile = (sh) => {
-    Object.assign(sh.uniforms, SHARED, own, { uCapColor: { value: capColor }, uPush: { value: kind === 'skin' ? 0.0018 : 0 },
+    Object.assign(sh.uniforms, SHARED, own, { uCapColor: { value: capColor }, uPush: { value: kind === 'skin' ? 0.0018 : kind === 'fat' ? 0.0022 : 0 },
       uEyeA: { value: eye?.a ?? new THREE.Vector3() }, uEyeB: { value: eye?.b ?? new THREE.Vector3() }, uEyeR: { value: eye?.r ?? 0.012 } })
     sh.vertexShader = VERT_HEAD + sh.vertexShader
       .replace('#include <begin_vertex>', VERT_BEGIN)

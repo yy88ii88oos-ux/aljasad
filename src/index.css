@@ -197,3 +197,7 @@ canvas { touch-action: none; }
 .btn.danger { border-color: rgba(255, 99, 99, 0.45); color: #ffb3b3; }
 .btn.danger:hover { background: rgba(255, 80, 80, 0.15); }
 @media (max-width: 820px) { .dissect { bottom: 138px; } }
+
+.systems .setting { border-top: 1px solid var(--line); margin-top: 6px; padding-top: 8px; }
+.systems .setting label { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--muted); padding: 4px 8px; cursor: pointer; }
+.systems .setting input { accent-color: #d68bd9; width: 15px; height: 15px; }

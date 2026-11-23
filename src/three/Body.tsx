@@ -68,6 +68,8 @@ export default function Body() {
     const st = useStore.getState()
     const t = state.clock.elapsedTime
     SHARED.uTime.value = t
+    // external genitalia morph away smoothly when the genital system is off
+    SHARED.uGen.value += ((st.systems.genital ? 0 : 1) - SHARED.uGen.value) * (1 - Math.exp(-dt * 5))
     const k = 1 - Math.exp(-dt * 7)
     const explodeTarget = st.mode === 'explode' ? st.explode : 0
     explodeT.current += (explodeTarget - explodeT.current) * (1 - Math.exp(-dt * 4))
