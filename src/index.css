@@ -223,3 +223,27 @@ canvas { touch-action: none; }
   .layers button { padding: 5px 9px; font-size: 12px; }
   .dissect { bottom: 104px; }
 }
+
+.snd { width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; color: var(--muted); border: 1px solid var(--line); background: rgba(255,255,255,0.04); }
+.snd svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+.snd[aria-pressed='true'] { color: var(--ink); }
+
+.top .snd + .src-link { margin-inline-start: 8px; }
+
+/* visual index */
+.top .atlas-btn { margin-inline-start: auto; display: flex; align-items: center; gap: 6px; padding: 7px 12px; border-radius: 999px; border: 1px solid var(--line); background: rgba(255,255,255,0.04); font-size: 13px; color: var(--ink); }
+.top .atlas-btn svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.7; }
+.top .atlas-btn + .snd { margin-inline-start: 8px; }
+.atlas { position: fixed; inset: 0; z-index: 30; display: grid; place-items: center; background: rgba(4, 7, 16, 0.55); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); animation: cardIn 0.3s ease; padding: 16px; }
+.atlas-in { width: min(980px, 100%); max-height: calc(100vh - 32px); overflow: auto; border-radius: 24px; padding: 18px; }
+.atlas-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; position: relative; }
+.atlas-head h2 { margin: 0; font-size: 20px; }
+.atlas-head .card-x { position: static; }
+.atlas-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 12px; }
+.atlas-card { display: flex; flex-direction: column; gap: 6px; padding: 8px; border-radius: 18px; background: rgba(255,255,255,0.04); border: 1px solid var(--line); text-align: start; transition: transform 0.2s, border-color 0.2s; }
+.atlas-card:hover { transform: translateY(-2px); border-color: var(--c); }
+.atlas-card img { width: 100%; height: auto; aspect-ratio: 3 / 4; object-fit: cover; border-radius: 12px; background: #0c1226; }
+.atlas-card span { display: flex; align-items: center; gap: 7px; font-weight: 600; font-size: 14px; }
+.atlas-card span i { width: 8px; height: 8px; border-radius: 50%; background: var(--c); box-shadow: 0 0 10px var(--c); }
+.atlas-card small { color: var(--muted); font-size: 12px; }
+@media (max-width: 820px) { .atlas-grid { grid-template-columns: repeat(3, 1fr); gap: 8px; } .atlas-card { padding: 6px; border-radius: 14px; } .atlas-card span { font-size: 12px; } .top .atlas-btn span { display: none; } }

@@ -31,6 +31,10 @@ export const TENDON = /tendon|aponeurosis|linea alba|retinaculum|fascia lata|ili
 function baseColor(s: Structure): string {
   const n = s.en
   if (s.en === 'subcutaneous fat') return '#E8BE52'
+  if (/ cornea$/.test(s.en)) return '#E8F4FF'
+  if (/ lens of eyeball$/.test(s.en)) return '#F3E3A8'
+  if (/ vitreous body$/.test(s.en)) return '#CFE6F2'
+  if (/ retina$/.test(s.en)) return '#D9583C'
   if (s.group === 'skin') return PALETTE.skin
   if (n === 'eyeball') return '#F4F1EA'
   if (s.group === 'skeleton') {
@@ -77,7 +81,7 @@ transformed = mix(transformed, gpos, uGen);
 transformed += objectNormal * uPush;
 #endif
 if (armw.x > 0.5 && uBend > 0.0001) {
-  float t = smoothstep(0.015, -0.03, transformed.y - uPivot.y);
+  float t = 1.0 - smoothstep(-0.03, 0.015, transformed.y - uPivot.y);
   float ang = uBend * t;
   transformed = uPivot + rotAxis(transformed - uPivot, uAxis, ang);
   transformed += normal * armw.y * uBend * 0.006 * (1.0 - t);
@@ -89,7 +93,7 @@ vec3 objectNormal = vec3( normal );
 objectNormal = normalize(mix(objectNormal, gnor, uGen));
 #endif
 if (armw.x > 0.5 && uBend > 0.0001) {
-  float tN = smoothstep(0.015, -0.03, position.y - uPivot.y);
+  float tN = 1.0 - smoothstep(-0.03, 0.015, position.y - uPivot.y);
   objectNormal = rotAxis(objectNormal, uAxis, uBend * tN);
 }
 #ifdef USE_TANGENT
@@ -263,13 +267,14 @@ if (any(isnan(gl_FragColor)) || any(isinf(gl_FragColor))) gl_FragColor = vec4(di
 gl_FragColor.rgb += vec3(1.0, 0.62, 0.32) * jEdge * 3.0;
 // selection: a soft luminous rim (Fresnel) rather than a flat flash
 if (uGlow > 0.001) { float rim = pow(1.0 - abs(dot(normalize(normal), normalize(vViewPosition))), 2.2);
-  gl_FragColor.rgb += uGlowColor * (rim * 2.6 + 0.3) * uGlow; }
+  gl_FragColor.rgb += uGlowColor * (rim * 2.4 + 0.1) * uGlow; }
 #include <dithering_fragment>
 `
 
-export type Kind = 'bone' | 'muscle' | 'organ' | 'vessel' | 'brain' | 'skin' | 'tooth' | 'tissue' | 'eye' | 'fat'
+export type Kind = 'bone' | 'muscle' | 'organ' | 'vessel' | 'brain' | 'skin' | 'tooth' | 'tissue' | 'eye' | 'fat' | 'clear'
 export function kindOf(s: Structure): Kind {
   if (s.en === 'subcutaneous fat') return 'fat'
+  if (/ (cornea|vitreous body|lens of eyeball)$/.test(s.en)) return 'clear'
   if (s.group === 'skin') return 'skin'
   if (s.en === 'eyeball') return 'eye'
   if (s.group === 'skeleton') return /tooth/.test(s.en) ? 'tooth' : /cartilage|disk|disc|menisc/.test(s.en) || TENDON.test(s.en) ? 'tissue' : 'bone'
@@ -294,6 +299,12 @@ export function makeMaterial(s: Structure, eye?: EyeInfo): THREE.MeshPhysicalMat
       Object.assign(m, { roughness: 0.3, clearcoat: 1, clearcoatRoughness: 0.03, sheen: 0 })
       defines.EYE = ''
       break
+    case 'clear': {
+      const lens = / lens of eyeball$/.test(s.en), cornea = / cornea$/.test(s.en)
+      Object.assign(m, { roughness: 0.05, clearcoat: 1, clearcoatRoughness: 0.02, transparent: true, depthWrite: false,
+        opacity: cornea ? 0.12 : lens ? 0.55 : 0.22, side: cornea ? THREE.FrontSide : THREE.DoubleSide })
+      break
+    }
     case 'tooth':
       Object.assign(m, { roughness: 0.3, clearcoat: 0.8, clearcoatRoughness: 0.2 })
       break
@@ -357,12 +368,19 @@ export function makeMaterial(s: Structure, eye?: EyeInfo): THREE.MeshPhysicalMat
 export function makeXray(color = '#7fd8ff') {
   return new THREE.ShaderMaterial({
     uniforms: { uColor: { value: new THREE.Color(color) }, uOpacity: { value: 1 } },
+    clipping: true, clippingPlanes: [CLIP_PLANE],
     vertexShader: /* glsl */ `
+      #include <clipping_planes_pars_vertex>
       varying vec3 vN; varying vec3 vV;
-      void main(){ vec4 mv = modelViewMatrix * vec4(position,1.0); vN = normalize(normalMatrix*normal); vV = -mv.xyz; gl_Position = projectionMatrix*mv; }`,
+      void main(){ vec4 mvPosition = modelViewMatrix * vec4(position,1.0); vN = normalize(normalMatrix*normal); vV = -mvPosition.xyz; gl_Position = projectionMatrix*mvPosition;
+        #include <clipping_planes_vertex>
+      }`,
     fragmentShader: /* glsl */ `
+      #include <clipping_planes_pars_fragment>
       uniform vec3 uColor; uniform float uOpacity; varying vec3 vN; varying vec3 vV;
-      void main(){ float f = pow(1.0 - abs(dot(normalize(vN), normalize(vV))), 2.6);
+      void main(){
+        #include <clipping_planes_fragment>
+        float f = pow(1.0 - abs(dot(normalize(vN), normalize(vV))), 2.6);
         gl_FragColor = vec4(uColor * (0.04 + f * 0.9), (0.02 + f * 0.55) * uOpacity); }`,
     transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
   })

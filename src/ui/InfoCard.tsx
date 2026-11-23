@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { STRUCTURES, SYSTEM_BY_KEY, LAYERS, isMobile } from '../data'
 import { useStore } from '../store'
-import { flyHome } from '../three/Scene'
+import { flyHome, openCut } from '../three/Scene'
 
 const canSpeak = typeof window !== 'undefined' && 'speechSynthesis' in window
 function speak(text: string) {
@@ -48,6 +48,10 @@ export default function InfoCard() {
           <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.2" /><path d="M12 2v4M12 18v4M2 12h4M18 12h4" /></svg>عزل</button>
         <button className="act" disabled={!canSpeak} onClick={() => speak(s.ar)} title="نطق الاسم">
           <svg viewBox="0 0 24 24"><path d="M4 9v6h4l5 4V5L8 9zM16.5 8.5a5 5 0 0 1 0 7M19 6a8.5 8.5 0 0 1 0 12" /></svg>نطق</button>
+        {(s.id === 'FMA12513' || s.id.startsWith('EYE_') || s.id === 'FMA7274') && (
+          <button className="act" onClick={() => openCut(s.id === 'FMA7274' ? 'heart' : 'eye')} title={s.id === 'FMA7274' ? 'قطع القلب لرؤية حجراته وصماماته' : 'قطع العين لرؤية العدسة والجسم الزجاجي والشبكية'}>
+            <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8" /><path d="M12 3v18" /><ellipse cx="15" cy="12" rx="1.6" ry="3.2" /></svg>مقطع داخلي</button>
+        )}
         <button className="act" onClick={() => select(s.id, true)} title="تقريب الكاميرا">
           <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="6" /><path d="M20 20l-4.5-4.5M11 8v6M8 11h6" /></svg>تقريب</button>
       </div>

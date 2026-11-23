@@ -28,4 +28,10 @@ node scripts/build-structures.mjs
 - الشيفرة: MIT.
 
 ## روابط مباشرة
-`?mode=xray|section|explode` · `depth=0..4` · `sys=skeletal,muscular` · `sel=FMA7274` · `fly=1` · `iso=1` · `tour=blood|food|arm` · `axis=x|y|z&pos=-1..1` · `lod=m` (نماذج خفيفة)
+`?mode=xray|section|explode` · `depth=0..5` (جلد، دهون، عضلات سطحية، عميقة، أعضاء، عظام) · `sys=skeletal,muscular` · `sel=FMA7274` · `fly=1` · `iso=1` · `tour=blood|food|arm` · `axis=x|y|z&pos=-1..1` · `lod=m` (نماذج خفيفة) · `rm=ID,ID` (تراكيب مُزالة) · `cut=eye|heart` (مقطع داخلي) · `cam=px,py,pz,tx,ty,tz` (كاميرا ثابتة) · `still` (بلا دوران) · `bare` (بلا واجهة)
+
+### ملاحظات
+- طبقة الدهون وأجزاء العين الداخلية (العدسة، الجسم الزجاجي، الشبكية، القرنية) مبنية برمجيًا بأبعاد تشريحية لأن BodyParts3D لا يتضمّنها.
+- الأعضاء التناسلية مخفية افتراضيًا (إعداد في قائمة الأجهزة).
+- الأسماء اللاتينية مكتوبة يدويًا وفق Terminologia Anatomica لـ 860 من 931 تركيبًا؛ ما لم يُتحقق منه بلا اسم لاتيني.
+- الصوت مُركّب في المتصفح (WebAudio) ويبدأ بعد أول لمسة.

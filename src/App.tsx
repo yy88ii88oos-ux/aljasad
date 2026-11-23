@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useState } from 'react'
-import Scene, { flyHome } from './three/Scene'
+import Scene, { flyHome, openCut, intro } from './three/Scene'
+import { initAudio, setSound, setHeartbeat } from './audio'
 import { loadGroups, buildBVHIdle } from './three/registry'
 import { useStore, deepLink, type Mode, type TourId } from './store'
 import { SYSTEMS, LAYERS, LAYER_INDEX, STRUCTURES, search, isMobile, type Structure } from './data'
 import Loader from './ui/Loader'
 import InfoCard from './ui/InfoCard'
 import Sources from './ui/Sources'
+import Atlas from './ui/Atlas'
 
 function useLoad() {
   const set = useStore((s) => s.set)
@@ -18,8 +20,12 @@ function useLoad() {
         set({ progress: 1 })
         setTimeout(() => {
           set({ ready: true })
+          // cinematic opening when the page is opened plainly (no deep link)
+          if (!location.search.replace(/^\?/, '').replace(/(^|&)lod=m/, '')) intro()
           if (deepLink.sel) { useStore.getState().select(deepLink.sel, deepLink.fly); if (deepLink.iso) set({ isolated: true }) }
           if (deepLink.tour) setTimeout(() => set({ tour: deepLink.tour }), 600)
+          const cut = new URLSearchParams(location.search).get('cut') as 'eye' | 'heart' | null
+          if (cut) setTimeout(() => openCut(cut), 400)
         }, 250)
         return loadGroups(['muscles'], (f) => set({ streaming: f }))
       })
@@ -180,12 +186,20 @@ function ToursBar() {
   )
 }
 
+const BARE = /[?&]bare/.test(location.search) // thumbnails / clean captures
+
 export default function App() {
   useLoad()
+  const sound = useStore((s) => s.sound)
+  const life = useStore((s) => s.life)
+  useEffect(() => { initAudio() }, [])
+  useEffect(() => { setSound(sound) }, [sound])
+  useEffect(() => { setHeartbeat(life) }, [life])
   const page = useStore((s) => s.page)
   const ready = useStore((s) => s.ready)
   const streaming = useStore((s) => s.streaming)
   const interacting = useStore((s) => s.interacting)
+  const [atlas, setAtlas] = useState(false)
   const set = useStore((s) => s.set)
   useEffect(() => {
     const f = () => set({ page: location.hash === '#sources' ? 'sources' : 'viewer' })
@@ -195,13 +209,19 @@ export default function App() {
   return (
     <>
       <Scene />
-      <div className={'ui' + (ready ? ' ready' : '') + (interacting ? ' interacting' : '')}>
+      <div className={'ui' + (ready ? ' ready' : '') + (interacting ? ' interacting' : '')} hidden={BARE}>
         <header className="top">
           <button className="brand" onClick={() => { set({ selected: null, isolated: false, tour: null }); flyHome() }} aria-label="الجسد — العودة للعرض الكامل">
             <svg viewBox="0 0 64 64" aria-hidden><path d="M32 52S10 39 10 24a11 11 0 0 1 22-3 11 11 0 0 1 22 3c0 15-22 28-22 28z" /><path className="ln" d="M12 32h12l4-8 5 16 4-8h15" /></svg>
             <span>الجسد</span>
           </button>
           <SearchBox />
+          <button className="atlas-btn" onClick={() => setAtlas(true)} title="فهرس بصري لأجهزة الجسم">
+            <svg viewBox="0 0 24 24"><rect x="3" y="3" width="7.5" height="7.5" rx="2" /><rect x="13.5" y="3" width="7.5" height="7.5" rx="2" /><rect x="3" y="13.5" width="7.5" height="7.5" rx="2" /><rect x="13.5" y="13.5" width="7.5" height="7.5" rx="2" /></svg><span>الفهرس</span>
+          </button>
+          <button className="snd" onClick={() => set({ sound: !sound })} aria-pressed={sound} aria-label={sound ? 'كتم الصوت' : 'تشغيل الصوت'} title={sound ? 'كتم الصوت' : 'تشغيل الصوت'}>
+            <svg viewBox="0 0 24 24"><path d="M4 9v6h4l5 4V5L8 9z" />{sound ? <path d="M16.5 8.5a5 5 0 0 1 0 7M19 6a8.5 8.5 0 0 1 0 12" /> : <path d="M17 9l5 6M22 9l-5 6" />}</svg>
+          </button>
           <a className="src-link" href="#sources">المصادر والرخصة</a>
         </header>
         <SystemsMenu />
@@ -211,6 +231,7 @@ export default function App() {
         <Dock />
         {ready && streaming < 1 && <div className="stream glass">تحميل العضلات… {Math.round(streaming * 100)}%</div>}
       </div>
+      {atlas && <Atlas onClose={() => setAtlas(false)} />}
       {page === 'sources' && <Sources />}
       <Loader />
     </>

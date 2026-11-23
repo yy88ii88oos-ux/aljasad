@@ -166,14 +166,46 @@ function makeFat(skin: THREE.BufferGeometry) {
 }
 export const FAT_ID = 'FAT'
 
+// lens, vitreous, retina and cornea at true proportions inside each globe (gaze +z); BodyParts3D has no inner eye
+function buildEyeInternals(eye: EyeInfo, parent: THREE.Object3D) {
+  const R = eye.r
+  for (const [side, c] of [['R', eye.a], ['L', eye.b]] as const) {
+    const mk = (key: string, g: THREE.BufferGeometry) => {
+      const id = 'EYE_' + key + '_' + side, s = STRUCTURES[id]
+      if (!s || parts.has(id)) return
+      const mesh = new THREE.Mesh(g, makeMaterial(s)); mesh.name = id
+      g.computeBoundingSphere()
+      const center = new THREE.Vector3(); g.boundingSphere!.center && center.copy(g.boundingSphere!.center)
+      const bb = new THREE.Box3().setFromBufferAttribute(g.attributes.position as THREE.BufferAttribute)
+      Object.assign(s, { c: center.toArray(), min: bb.min.toArray(), max: bb.max.toArray() })
+      parts.set(id, { id, s, mesh, mat: mesh.material as THREE.MeshPhysicalMaterial, xray: xrayShared, center, fade: 0, target: 1, glow: 0, ghost: false, explodeDir: new THREE.Vector3() })
+      parent.add(mesh)
+    }
+    // vitreous: fills the posterior 4/5 of the globe
+    mk('VITREOUS', new THREE.SphereGeometry(R * 0.9, 40, 28).translate(c.x, c.y, c.z - R * 0.06))
+    // retina: inner lining of the back of the globe, up to the ora serrata
+    mk('RETINA', new THREE.SphereGeometry(R * 0.94, 48, 32, 0, Math.PI * 2, Math.PI * 0.38, Math.PI * 0.62).rotateX(Math.PI / 2).translate(c.x, c.y, c.z))
+    // lens: biconvex, ~9 mm across and 4 mm thick, just behind the iris
+    mk('LENS', new THREE.SphereGeometry(R * 0.37, 40, 24).scale(1, 1, 0.42).translate(c.x, c.y, c.z + R * 0.6))
+    // cornea: steeper dome (r ≈ 7.8 mm) bulging ~1.5 mm in front of the sclera
+    const rc = R * 0.65
+    mk('CORNEA', new THREE.SphereGeometry(rc, 40, 16, 0, Math.PI * 2, 0, Math.PI * 0.36).rotateX(Math.PI / 2).translate(c.x, c.y, c.z + R + R * 0.12 - rc))
+  }
+}
+
 // the BodyParts3D eyeball holds both globes: split by side and fit each centre
 function eyeInfo(geo: THREE.BufferGeometry): EyeInfo {
   const P = geo.attributes.position as THREE.BufferAttribute
   const A = new THREE.Box3(), B = new THREE.Box3(), v = new THREE.Vector3()
   for (let i = 0; i < P.count; i++) { v.fromBufferAttribute(P, i); (v.x < 0 ? A : B).expandByPoint(v) }
-  const a = A.getCenter(new THREE.Vector3()), b = B.getCenter(new THREE.Vector3())
-  const size = A.getSize(new THREE.Vector3())
-  return { a, b, r: Math.max(size.x, size.y, size.z) / 2 }
+  // radius from the x/y extent (the corneal bulge stretches z); centre one radius in front of the back pole
+  const fit = (bx: THREE.Box3) => {
+    const sz = bx.getSize(new THREE.Vector3()), r = (sz.x + sz.y) / 4
+    const c = bx.getCenter(new THREE.Vector3()); c.z = bx.min.z + r
+    return { c, r }
+  }
+  const fa = fit(A), fb = fit(B)
+  return { a: fa.c, b: fb.c, r: (fa.r + fb.r) / 2 }
 }
 
 function register(scene: THREE.Object3D) {
@@ -188,7 +220,9 @@ function register(scene: THREE.Object3D) {
     if (!s || id === FAT_ID || parts.has(id)) return
     const geo = prepare(mesh, s)
     geo.computeBoundingSphere()
-    const mat = makeMaterial(s, s.en === 'eyeball' ? eyeInfo(geo) : undefined)
+    const eyeI = s.en === 'eyeball' ? eyeInfo(geo) : undefined
+    const mat = makeMaterial(s, eyeI)
+    if (eyeI) buildEyeInternals(eyeI, mesh.parent!)
     mesh.material = mat
     mesh.userData.id = id
     mesh.matrixAutoUpdate = true
@@ -314,6 +348,9 @@ export async function upgradeGroup(g: Group) {
           const old = p.mesh.geometry
           p.mesh.geometry = geo
           old.dispose()
+          // the generated fat shell must follow the skin it was shaped from, or it pokes through
+          const fat = p.s.group === 'skin' ? parts.get(FAT_ID) : undefined
+          if (fat) { const fo = fat.mesh.geometry; fat.mesh.geometry = makeFat(geo); fat.mesh.geometry.computeBoundingSphere(); fo.dispose() }
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           ;(geo as any).computeBoundsTree?.()
         }

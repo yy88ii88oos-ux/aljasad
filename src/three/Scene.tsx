@@ -59,6 +59,42 @@ export function flyToStructure(id: string) {
   rig.focus.copy(target)
   flyTo(target.clone().addScaledVector(dir, dist), target)
 }
+// straight at a sagittal cut face (camera on +x looking toward -x)
+export function flyToCut(id: string, dist = 0.09, axis: 'x' | 'z' = 'x') {
+  const s = STRUCTURES[id]
+  if (!s) return
+  const t = new THREE.Vector3(...s.c)
+  rig.focus.copy(t)
+  const off = axis === 'x' ? new THREE.Vector3(dist, 0.004, 0.012) : new THREE.Vector3(0.02, 0.01, dist)
+  flyTo(t.clone().add(off), t, 2)
+}
+// «internal section» presets: a cut through the structure, then the camera faces the cut
+export const CUTS: Record<string, { axis: 'x' | 'z'; target: string; dist: number; depth: number }> = {
+  eye: { axis: 'x', target: 'EYE_LENS_R', dist: 0.09, depth: 2 },
+  heart: { axis: 'z', target: 'FMA7274', dist: 0.32, depth: 4 },
+}
+export function openCut(key: keyof typeof CUTS) {
+  const c = CUTS[key], s = STRUCTURES[c.target]
+  if (!s) return
+  const ext = c.axis === 'x' ? 0.34 : 0.2
+  useStore.getState().set({ mode: 'section', sectionAxis: c.axis, sectionPos: s.c[c.axis === 'x' ? 0 : 2] / ext, depth: c.depth })
+  setTimeout(() => { useStore.getState().select(c.target); flyToCut(c.target, c.dist, c.axis) }, 1700)
+}
+// opening shot: the beating heart seen through the glass body, then the camera pulls back to the whole figure
+export function intro() {
+  const c = rig.controls, cam = rig.camera
+  const h = STRUCTURES['FMA7274']
+  if (!c || !cam || !h) return
+  const t = new THREE.Vector3(...h.c)
+  cam.position.set(t.x + 0.05, t.y + 0.03, t.z + (isMobile ? 0.62 : 0.45)); c.target.copy(t); c.update()
+  const st = useStore.getState()
+  st.set({ mode: 'xray', life: true, highlight: ['FMA7274'] })
+  gsap.delayedCall(3.2, () => {
+    if ((window as unknown as { __holdIntro?: boolean }).__holdIntro) return
+    useStore.getState().set({ mode: 'layers', highlight: [] })
+    flyTo(HOME.pos, HOME.target, 3.4)
+  })
+}
 export function flyHome() { rig.focus.set(0, 0, 0); flyTo(HOME.pos, HOME.target) }
 
 function Rig() {
@@ -151,7 +187,7 @@ function Backdrop() {
         void main(){ vec3 p = position; p.y += mod(uTime*0.02*(0.4+seed) + seed*4.0, 4.0) - 2.0 - position.y*0.0;
           p.x += sin(uTime*0.1+seed*20.0)*0.08; vec4 mv = modelViewMatrix*vec4(p,1.0);
           gl_Position = projectionMatrix*mv; gl_PointSize = (2.0+seed*5.0)*(3.0/-mv.z); vA = 0.25+0.5*sin(uTime*0.5+seed*30.0)*0.5+0.25; }`,
-      fragmentShader: 'varying float vA; void main(){ float r=length(gl_PointCoord-0.5); if(r>0.5) discard; gl_FragColor=vec4(vec3(0.55,0.75,1.0)*smoothstep(0.5,0.0,r)*vA*0.55,1.0); }',
+      fragmentShader: 'varying float vA; void main(){ float r=length(gl_PointCoord-0.5); if(r>0.5) discard; gl_FragColor=vec4(vec3(0.55,0.75,1.0)*(1.0-smoothstep(0.0,0.5,r))*vA*0.55,1.0); }',
     })
     const pts = new THREE.Points(g, m); pts.frustumCulled = false
     return pts
@@ -225,6 +261,9 @@ function Lights() {
 }
 
 const STILL = /[?&](still|cam=)/.test(location.search)
+// MSAA in the HDR composer turned frames black with blended particles in testing (and costs a lot on phones):
+// anti-aliasing comes from SMAA at device-pixel-ratio 2 instead. ?msaa=4 re-enables it for comparison.
+const MSAA = /[?&]msaa=4/.test(location.search) ? 4 : 0
 const FX = !/[?&]fx=0/.test(location.search)
 function Effects({ lite }: { lite: boolean }) {
   const dofRef = useRef<DepthOfFieldEffect>(null)
@@ -236,7 +275,7 @@ function Effects({ lite }: { lite: boolean }) {
   })
   if (isMobile || lite) {
     return (
-      <EffectComposer multisampling={4}>
+      <EffectComposer multisampling={MSAA}>
         {!lite && !/noao/.test(location.search) ? <N8AO halfRes quality="performance" aoRadius={0.05} distanceFalloff={0.6} intensity={2.2} /> : <></>}
         <Bloom mipmapBlur luminanceThreshold={2.2} intensity={0.7} radius={0.6} />
         <Vignette offset={0.25} darkness={0.75} />
@@ -246,7 +285,7 @@ function Effects({ lite }: { lite: boolean }) {
     )
   }
   return (
-    <EffectComposer multisampling={4}>
+    <EffectComposer multisampling={MSAA}>
       {!/noao/.test(location.search) ? <N8AO quality="medium" aoRadius={0.06} distanceFalloff={0.6} intensity={2.6} /> : <></>}
       {!/nodof/.test(location.search) ? <DepthOfField ref={dofRef} focusRange={0.05} bokehScale={0} /> : <></>}
       <Bloom mipmapBlur luminanceThreshold={2.2} intensity={0.7} radius={0.6} />

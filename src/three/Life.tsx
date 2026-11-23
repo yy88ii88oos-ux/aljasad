@@ -7,22 +7,36 @@ import { CLIP_PLANE } from './materials'
 import { useStore } from '../store'
 import { heartPulse } from './Body'
 
-// Points shader: soft glowing dots, pulled toward the camera by `pull` metres so they read through the vessel wall
-function pointsMaterial() {
+// Particles as instanced camera-facing quads (not GL points: point sprites misbehave with MSAA on some GPUs and are
+// size-capped on phones). Each quad is pulled toward the camera by `pull` metres so it reads through the vessel wall.
+function particleMaterial() {
   return new THREE.ShaderMaterial({
-    uniforms: { uScale: { value: 1 } },
     vertexShader: /* glsl */ `
-      attribute vec3 color; attribute float alpha; attribute float size; attribute float pull;
-      varying vec3 vC; varying float vA; uniform float uScale;
-      void main(){ vec4 mv = modelViewMatrix * vec4(position,1.0);
-        mv.xyz += normalize(-mv.xyz) * pull;
-        gl_Position = projectionMatrix * mv; gl_PointSize = max(1.5, size * uScale / -mv.z); vC = color; vA = alpha; }`,
+      attribute vec3 ipos; attribute vec3 icolor; attribute float ialpha; attribute float isize; attribute float ipull;
+      varying vec3 vC; varying float vA; varying vec2 vUv;
+      void main(){ vec4 mv = modelViewMatrix * vec4(ipos, 1.0);
+        mv.xyz += normalize(-mv.xyz) * ipull;
+        mv.xy += position.xy * isize;
+        gl_Position = projectionMatrix * mv; vC = icolor; vA = clamp(ialpha, 0.0, 1.0); vUv = position.xy; }`,
     fragmentShader: /* glsl */ `
-      varying vec3 vC; varying float vA;
-      void main(){ vec2 d = gl_PointCoord - 0.5; float r = length(d); if (r > 0.5) discard;
-        float a = smoothstep(0.5, 0.0, r); gl_FragColor = vec4(vC * (0.6 + a), a * vA); }`,
-    transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
+      varying vec3 vC; varying float vA; varying vec2 vUv;
+      void main(){ float r = length(vUv); if (r > 0.5 || vA < 0.002) discard;
+        float a = 1.0 - smoothstep(0.0, 0.5, r);
+        gl_FragColor = vec4(min(vC, vec3(1.0)) * (0.7 + 0.3 * a), smoothstep(0.0, 0.6, a) * vA); }`,
+    // normal blending: overlapping cells stay red / blue instead of stacking up to white
+    transparent: true, depthWrite: false, blending: THREE.NormalBlending,
   })
+}
+function particles(n: number) {
+  const g = new THREE.InstancedBufferGeometry()
+  const quad = new THREE.PlaneGeometry(1, 1)
+  g.index = quad.index; g.setAttribute('position', quad.attributes.position)
+  g.instanceCount = n
+  for (const [name, k] of [['ipos', 3], ['icolor', 3], ['ialpha', 1], ['isize', 1], ['ipull', 1]] as const)
+    g.setAttribute(name, new THREE.InstancedBufferAttribute(new Float32Array(n * k), k).setUsage(THREE.DynamicDrawUsage))
+  const m = new THREE.Mesh(g, particleMaterial())
+  m.frustumCulled = false
+  return m
 }
 
 interface Stream { id: string; pts: THREE.Vector3[]; len: number; speed: number; artery: boolean; pull: number; color: THREE.Color }
@@ -49,7 +63,7 @@ export default function Life() {
       if (s.group === 'nervous') {
         // eye → brain: optic nerve starts anterior, optic tract runs posterior
         if (pts[0].z < pts[pts.length - 1].z) pts = pts.reverse()
-        nerveStreams.push({ id, pts, len: f.length, speed: 0.35, artery: false, pull: 0.004, color: new THREE.Color(3.2, 2.4, 0.9) })
+        nerveStreams.push({ id, pts, len: f.length, speed: 0.35, artery: false, pull: 0.004, color: new THREE.Color(1.5, 1.15, 0.4) })
         continue
       }
       if (s.group !== 'cardio') continue
@@ -59,7 +73,7 @@ export default function Life() {
       const big = /aorta|vena cava/.test(s.en)
       streams.push({
         id, pts, len: f.length, speed: vein ? 0.07 : 0.16, artery: !vein, pull: big ? 0.014 : /carotid|subclavian|iliac|brachiocephalic|renal/.test(s.en) ? 0.007 : 0.004,
-        color: vein ? new THREE.Color(0.25, 0.45, 2.0) : new THREE.Color(2.1, 0.15, 0.2),
+        color: vein ? new THREE.Color(0.18, 0.36, 1.0) : new THREE.Color(0.92, 0.08, 0.1), // stays below the bloom threshold: true red / blue, never white
       })
     }
     const density = isMobile ? 70 : 160 // particles per metre
@@ -69,20 +83,16 @@ export default function Life() {
         const n = Math.max(3, Math.round(st.len * dens))
         for (let i = 0; i < n; i++) items.push({ s: si, u: Math.random(), v: 0.75 + Math.random() * 0.5, jit: new THREE.Vector3().randomDirection().multiplyScalar(0.0025) })
       })
-      const g = new THREE.BufferGeometry()
       const N = items.length
-      g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(N * 3), 3))
-      g.setAttribute('color', new THREE.BufferAttribute(new Float32Array(N * 3), 3))
-      g.setAttribute('alpha', new THREE.BufferAttribute(new Float32Array(N), 1))
-      g.setAttribute('size', new THREE.BufferAttribute(new Float32Array(N).map(() => sizeBase * (0.7 + Math.random() * 0.6)), 1))
-      g.setAttribute('pull', new THREE.BufferAttribute(new Float32Array(N), 1))
+      const pts = particles(N)
+      const g = pts.geometry
+      const sz = g.attributes.isize as THREE.BufferAttribute, col = g.attributes.icolor as THREE.BufferAttribute, pl = g.attributes.ipull as THREE.BufferAttribute
       items.forEach((it, i) => {
         const st = list[it.s]
-        ;(g.attributes.color as THREE.BufferAttribute).setXYZ(i, st.color.r, st.color.g, st.color.b)
-        ;(g.attributes.pull as THREE.BufferAttribute).setX(i, st.pull)
+        col.setXYZ(i, st.color.r, st.color.g, st.color.b)
+        pl.setX(i, st.pull)
+        sz.setX(i, sizeBase * (0.7 + Math.random() * 0.6))
       })
-      const pts = new THREE.Points(g, pointsMaterial())
-      pts.frustumCulled = false
       pts.renderOrder = 20
       return { pts, items }
     }
@@ -98,15 +108,17 @@ export default function Life() {
       const k = Math.floor(Math.random() * P.count)
       sparkPos.push(P.getX(k), P.getY(k), P.getZ(k))
     }
-    const sg = new THREE.BufferGeometry()
     const ns = sparkPos.length / 3
-    sg.setAttribute('position', new THREE.BufferAttribute(new Float32Array(sparkPos), 3))
-    sg.setAttribute('color', new THREE.BufferAttribute(new Float32Array(ns * 3).map((_, i) => [3.0, 2.3, 1.0][i % 3]), 3))
-    sg.setAttribute('alpha', new THREE.BufferAttribute(new Float32Array(ns), 1))
-    sg.setAttribute('size', new THREE.BufferAttribute(new Float32Array(ns).fill(0.004), 1))
-    sg.setAttribute('pull', new THREE.BufferAttribute(new Float32Array(ns).fill(0.002), 1))
-    const sparks = new THREE.Points(sg, pointsMaterial())
-    sparks.frustumCulled = false
+    const sparks = particles(ns)
+    {
+      const g = sparks.geometry
+      ;(g.attributes.ipos as THREE.BufferAttribute).copyArray(new Float32Array(sparkPos))
+      for (let i = 0; i < ns; i++) {
+        ;(g.attributes.icolor as THREE.BufferAttribute).setXYZ(i, 1.0, 0.85, 0.45)
+        ;(g.attributes.isize as THREE.BufferAttribute).setX(i, 0.004)
+        ;(g.attributes.ipull as THREE.BufferAttribute).setX(i, 0.002)
+      }
+    }
     const phases = new Float32Array(ns).map(() => Math.random() * 10)
     return { blood, nerve, streams, nerveStreams, sparks: { pts: sparks, phases } }
   }, [])
@@ -116,28 +128,26 @@ export default function Life() {
     const st = useStore.getState()
     const on = st.life
     const t = state.clock.elapsedTime
-    // pixels per metre at 1 m distance → sizes below are true world sizes in metres
-    const cam = state.camera as THREE.PerspectiveCamera
-    const scale = (state.size.height * state.viewport.dpr) / (2 * Math.tan(THREE.MathUtils.degToRad(cam.fov) / 2))
-    for (const o of [blood.pts, nerve.pts, sparks.pts]) { o.visible = on; (o.material as THREE.ShaderMaterial).uniforms.uScale.value = scale }
+    for (const o of [blood.pts, nerve.pts, sparks.pts]) o.visible = on
     if (!on) return
     const pulse = heartPulse(t)
     // flow is shown once the organs are exposed (or seen through X-ray / isolation / tours)
     const exposed = st.mode === 'xray' || st.isolated || st.tour === 'blood' || st.depth >= 4 ? 1 : 0
     const vis = (id: string) => { const p = parts.get(id); return p && p.mesh.visible ? p.fade : 0 }
-    const step = (sys: { pts: THREE.Points; items: { s: number; u: number; v: number; jit: THREE.Vector3 }[] }, list: Stream[], pulsatile: boolean) => {
-      const P = sys.pts.geometry.attributes.position as THREE.BufferAttribute
-      const A = sys.pts.geometry.attributes.alpha as THREE.BufferAttribute
+    const step = (sys: { pts: THREE.Mesh; items: { s: number; u: number; v: number; jit: THREE.Vector3 }[] }, list: Stream[], pulsatile: boolean) => {
+      const P = sys.pts.geometry.attributes.ipos as THREE.BufferAttribute
+      const A = sys.pts.geometry.attributes.ialpha as THREE.BufferAttribute
       const vcache = list.map((s) => vis(s.id))
       sys.items.forEach((it, i) => {
         const s = list[it.s]
         const boost = pulsatile && s.artery ? 0.45 + 1.6 * pulse : 1
         it.u += (dt * s.speed * it.v * boost) / Math.max(0.03, s.len)
-        if (it.u > 1) it.u -= 1
+        // wrap (a long frame — slow GPU, background tab — can push u several laps ahead)
+        it.u -= Math.floor(it.u)
         at(s.pts, it.u, tmp)
         const ex = parts.get(s.id)?.mesh.position
         P.setXYZ(i, tmp.x + it.jit.x + (ex?.x || 0), tmp.y + it.jit.y + (ex?.y || 0), tmp.z + it.jit.z + (ex?.z || 0))
-        const edge = Math.min(1, it.u * 8, (1 - it.u) * 8)
+        const edge = Math.max(0, Math.min(1, it.u * 8, (1 - it.u) * 8))
         A.setX(i, vcache[it.s] * edge * exposed * (CLIP_PLANE.distanceToPoint(tmp) < 0 ? 0 : 1))
       })
       P.needsUpdate = true; A.needsUpdate = true
@@ -147,10 +157,10 @@ export default function Life() {
     // sparks flicker only while the brain is shown
     const brainVis = [...parts.values()].find((p) => p.s.group === 'nervous' && /cerebellum/.test(p.s.en))
     const bv = brainVis && brainVis.mesh.visible ? brainVis.fade : 0
-    const SA = sparks.pts.geometry.attributes.alpha as THREE.BufferAttribute
+    const SA = sparks.pts.geometry.attributes.ialpha as THREE.BufferAttribute
     for (let i = 0; i < SA.count; i++) {
       const ph = (t * 0.6 + sparks.phases[i]) % 3
-      tmp.fromBufferAttribute(sparks.pts.geometry.attributes.position as THREE.BufferAttribute, i)
+      tmp.fromBufferAttribute(sparks.pts.geometry.attributes.ipos as THREE.BufferAttribute, i)
       SA.setX(i, CLIP_PLANE.distanceToPoint(tmp) < 0 ? 0 : bv * Math.max(0, 1 - Math.abs(ph - 0.15) * 7))
     }
     SA.needsUpdate = true

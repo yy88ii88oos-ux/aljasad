@@ -8,6 +8,25 @@ export interface Structure {
   fn: string; fact: string; connected: string[]; c: [number, number, number]; min: [number, number, number]; max: [number, number, number]
 }
 export const STRUCTURES = structuresJson as unknown as Record<string, Structure>
+// inner eye (not in BodyParts3D): built at true dimensions inside each globe — see registry.buildEyeInternals
+export const EYE_PARTS: { key: string; ar: string; en: string; la: string; fn: string; fact: string }[] = [
+  { key: 'CORNEA', ar: 'القرنية', en: 'cornea', la: 'Cornea', fn: 'نافذة شفافة مقوّسة تكسر الضوء وتوفّر نحو ثلثي قوة التركيز في العين.', fact: 'القرنية بلا أوعية دموية: تأخذ أكسجينها من الهواء مباشرة ومن الدمع.' },
+  { key: 'LENS', ar: 'عدسة العين', en: 'lens of eyeball', la: 'Lens crystallina', fn: 'عدسة مرنة محدّبة الوجهين تغيّر شكلها لتضبط التركيز بين القريب والبعيد.', fact: 'خلايا العدسة تفقد نواها لتصبح شفافة تمامًا، وتبقى معك منذ ما قبل الولادة.' },
+  { key: 'VITREOUS', ar: 'الجسم الزجاجي', en: 'vitreous body', la: 'Corpus vitreum', fn: 'هلام شفاف يملأ تجويف العين ويحفظ شكلها ويمرّر الضوء إلى الشبكية.', fact: 'نحو 99% من الجسم الزجاجي ماء، والباقي ألياف كولاجين دقيقة وحمض الهيالورونيك.' },
+  { key: 'RETINA', ar: 'الشبكية', en: 'retina', la: 'Retina', fn: 'نسيج عصبي يبطّن قاع العين ويحوّل الضوء إلى إشارات عصبية عبر العصي والمخاريط.', fact: 'في الشبكية نحو 120 مليون عصية و6 ملايين مخروط، وهي امتداد حقيقي للدماغ.' },
+]
+for (const side of ['R', 'L'] as const) {
+  const eye = STRUCTURES['FMA12513']
+  if (!eye) break
+  for (const e of EYE_PARTS) {
+    const id = 'EYE_' + e.key + '_' + side
+    STRUCTURES[id] = {
+      ...eye, id, ar: e.ar + (side === 'R' ? ' اليمنى' : ' اليسرى').replace(/ (اليمنى|اليسرى)$/, (m) => (/^(القرنية|الشبكية|عدسة العين)$/.test(e.ar) ? m : m === ' اليمنى' ? ' الأيمن' : ' الأيسر')),
+      en: (side === 'R' ? 'right ' : 'left ') + e.en, la: e.la, layer: 'organs', system: 'sense', connected: ['FMA12513'],
+      fn: e.fn + ' (نموذج مبني بأبعاد تشريحية حقيقية لأن BodyParts3D لا يتضمّن أجزاء العين الداخلية.)', fact: e.fact,
+    }
+  }
+}
 // generated layer (not in BodyParts3D): subcutaneous fat, shaped from the skin surface
 {
   const sk = STRUCTURES['FMA7163']

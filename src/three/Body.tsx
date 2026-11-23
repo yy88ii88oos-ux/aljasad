@@ -19,6 +19,7 @@ export const breathPhase = (t: number) => 0.5 - 0.5 * Math.cos(t * BREATH * Math
 
 const tmp = new THREE.Vector3()
 const segB = new THREE.Vector3()
+const box = new THREE.Box3()
 const glowCol = new THREE.Color()
 const WARM = new THREE.Color('#ffd9a0')
 const EXT = { x: 0.34, y: 0.86, z: 0.2 }
@@ -53,6 +54,9 @@ function updateGhosts(sel: Part, camera: THREE.Camera, t: number) {
     caster.far = limit
     for (const p of cands) {
       if (ghosts.has(p.id)) continue
+      // a structure that encloses the target (vitreous around the lens, a capsule around an organ) stays solid
+      box.min.set(...p.s.min).add(p.mesh.position); box.max.set(...p.s.max).add(p.mesh.position)
+      if (box.containsPoint(c)) continue
       if (caster.intersectObject(p.mesh, false).length) ghosts.add(p.id)
     }
     caster.far = Infinity
@@ -127,11 +131,11 @@ export default function Body() {
       else if (p.mesh.material !== m) p.mesh.material = m
 
       if (!useX) {
-        const op = dimmed?.has(p.id) ? 0.28 : 1
+        const op = (m.userData.baseOpacity as number) * (dimmed?.has(p.id) ? 0.28 : 1)
         ;(m.userData.u as { uCut: { value: number } }).uCut.value = 1 - p.fade
         const needT = op < 0.995
         if (m.transparent !== needT) { m.transparent = needT; m.needsUpdate = true }
-        m.depthWrite = op > 0.6
+        m.depthWrite = op > 0.6 && m.userData.kind !== 'clear'
         m.opacity = op
         // highlight glow (bloom picks up emissive > 1)
         const want = p.id === st.selected ? 0.75 + 0.25 * Math.sin(t * 3) : st.highlight.includes(p.id) ? 0.7 + 0.3 * Math.sin(t * 5) : p.id === st.hovered ? 0.55 : 0
@@ -142,7 +146,7 @@ export default function Body() {
         u.uGlowColor.value.copy(glowCol)
         m.emissiveIntensity = 0
         // skin glass reads better from DoubleSide in section mode
-        const side = s.layer === 'skin' ? THREE.FrontSide : THREE.DoubleSide
+        const side = s.layer === 'skin' || / cornea$/.test(s.en) ? THREE.FrontSide : THREE.DoubleSide
         if (m.side !== side) { m.side = side; m.needsUpdate = true }
       }
 
