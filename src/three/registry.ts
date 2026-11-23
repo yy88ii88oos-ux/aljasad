@@ -2,7 +2,11 @@ import * as THREE from 'three'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js'
 import { computeBoundsTree, acceleratedRaycast } from 'three-mesh-bvh'
-import { STRUCTURES, lightModels, type Group, type Structure } from '../data'
+import { STRUCTURES, FLOW, lightModels, type Group, type Structure } from '../data'
+import { poseGeometry, posePoint } from './pose'
+
+// vessel centre lines follow the posed arms
+for (const f of Object.values(FLOW)) for (const pt of f.points) posePoint(pt)
 import { makeMaterial, makeXray, type EyeInfo } from './materials'
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -87,13 +91,28 @@ function dequantize(mesh: THREE.Mesh) {
 // float positions + per-vertex attributes the shaders need (fibre direction, elbow weights)
 function prepare(mesh: THREE.Mesh, s: Structure) {
     const geo = dequantize(mesh)
+    poseGeometry(geo, s)
     const n = geo.attributes.position.count
+    if (s.en === 'linea alba') {
+      // a fine white seam rather than a broad band: squeeze it toward the midline, just under the recti's surface
+      const P = geo.attributes.position as THREE.BufferAttribute
+      for (let i = 0; i < n; i++) { P.setX(i, s.c[0] + (P.getX(i) - s.c[0]) * 0.3); P.setZ(i, P.getZ(i) - 0.0008) }
+      geo.computeVertexNormals()
+    }
     if (s.group === 'muscles') {
       // broad sheets whose longest extent is across their fibres: use the known anatomical direction
       const d = /frontalis|occipitalis|temporoparietalis|platysma/.test(s.en) ? new THREE.Vector3(0, 1, 0.15).normalize() : fiberDir(geo)
       const arr = new Float32Array(n * 3)
       for (let i = 0; i < n; i++) arr.set([d.x, d.y, d.z], i * 3)
       geo.setAttribute('fdir', new THREE.BufferAttribute(arr, 3))
+      // distance (m) to the nearer end along the fibres + the muscle's length: the shader whitens the ends into tendon
+      const P = geo.attributes.position as THREE.BufferAttribute
+      const proj = new Float32Array(n)
+      let lo = Infinity, hi = -Infinity
+      for (let i = 0; i < n; i++) { const t = P.getX(i) * d.x + P.getY(i) * d.y + P.getZ(i) * d.z; proj[i] = t; lo = Math.min(lo, t); hi = Math.max(hi, t) }
+      const fp = new Float32Array(n * 2)
+      for (let i = 0; i < n; i++) { fp[i * 2] = Math.min(proj[i] - lo, hi - proj[i]); fp[i * 2 + 1] = hi - lo }
+      geo.setAttribute('fpos', new THREE.BufferAttribute(fp, 2))
     }
     if (ARM.test(s.en) && (s.side === 'right' || /right/.test(s.en))) {
       const arr = new Float32Array(n * 2)
@@ -227,6 +246,7 @@ function register(scene: THREE.Object3D) {
     const mat = makeMaterial(s, eyeI)
     if (eyeI) buildEyeInternals(eyeI, mesh.parent!)
     mesh.material = mat
+    mesh.castShadow = mesh.receiveShadow = true
     mesh.userData.id = id
     mesh.matrixAutoUpdate = true
     const center = new THREE.Vector3(...s.c)
@@ -239,7 +259,7 @@ function register(scene: THREE.Object3D) {
       const fs = STRUCTURES[FAT_ID]
       if (fs && !parts.has(FAT_ID)) {
         const fm = new THREE.Mesh(makeFat(geo), makeMaterial(fs))
-        fm.name = FAT_ID; fm.renderOrder = 9
+        fm.name = FAT_ID; fm.renderOrder = 9; fm.receiveShadow = true
         fm.geometry.computeBoundingSphere()
         parts.set(FAT_ID, { id: FAT_ID, s: fs, mesh: fm, mat: fm.material as THREE.MeshPhysicalMaterial, xray: xrayShared, center: new THREE.Vector3(...fs.c), fade: 0, target: 1, glow: 0, ghost: false, explodeDir: new THREE.Vector3() })
         mesh.parent?.add(fm)

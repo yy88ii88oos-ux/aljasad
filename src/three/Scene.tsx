@@ -13,12 +13,13 @@ import Body from './Body'
 import Life from './Life'
 import Tours from './Tours'
 import StudyRig from './StudyRig'
+import { Grade } from './grade'
 import { parts, upgradeGroup } from './registry'
 import { STRUCTURES, isMobile, lightModels, type Group } from '../data'
 import { useStore } from '../store'
 
 export const HOME = isMobile
-  ? { pos: new THREE.Vector3(0, 0.1, 4.3), target: new THREE.Vector3(0, 0.06, 0) }
+  ? { pos: new THREE.Vector3(0, 0.08, 3.45), target: new THREE.Vector3(0, 0.035, 0) }
   : { pos: new THREE.Vector3(0, 0.12, 2.75), target: new THREE.Vector3(0, 0.02, 0) }
 export const rig: { controls: OrbitControlsImpl | null; camera: THREE.PerspectiveCamera | null; focus: THREE.Vector3; dof: number } = {
   controls: null, camera: null, focus: new THREE.Vector3(), dof: 0,
@@ -244,14 +245,20 @@ function SelLabel() {
 function Lights() {
   return (
     <>
-      <ambientLight intensity={0.12} />
-      <directionalLight position={[1.5, 2.5, 2.5]} intensity={1.6} color="#fff3e6" />
-      {/* rim light from behind carves the silhouette */}
-      <directionalLight position={[-1.2, 1.5, -3]} intensity={3.2} color="#8fc4ff" />
-      <directionalLight position={[1.8, -0.5, -2.5]} intensity={1.6} color="#ffb48a" />
-      <Environment resolution={256} frames={1}>
+      <ambientLight intensity={0.06} color="#9fb4e8" />
+      {/* key: warm, high and to the side, with soft shadows the muscles cast on one another */}
+      <directionalLight position={[-1.5, 2.6, 2.3]} intensity={3.3} color="#ffe6cc" castShadow
+        shadow-mapSize={[SHADOW, SHADOW]} shadow-bias={-0.0004} shadow-normalBias={0.0035} shadow-radius={isMobile ? 3 : 4}
+        shadow-camera-left={-0.62} shadow-camera-right={0.62} shadow-camera-top={0.95} shadow-camera-bottom={-0.95}
+        shadow-camera-near={1} shadow-camera-far={7} />
+      {/* faint cool fill so the shadow side stays readable */}
+      <directionalLight position={[1.8, 0.4, 2.2]} intensity={0.35} color="#9db6ff" />
+      {/* rim lights from behind carve the silhouette: cold on one side, warm on the other */}
+      <directionalLight position={[1.4, 1.6, -3]} intensity={3.6} color="#8fc4ff" />
+      <directionalLight position={[-1.8, -0.3, -2.5]} intensity={1.5} color="#ffb48a" />
+      <Environment resolution={256} frames={1} environmentIntensity={0.6}>
         {/* soft studio HDRI built from light-formers (no network fetch) */}
-        <Lightformer form="rect" intensity={1.6} position={[0, 4, 2]} scale={[8, 3, 1]} color="#fff6ee" />
+        <Lightformer form="rect" intensity={1.2} position={[-1, 4, 2]} scale={[8, 3, 1]} color="#fff1e2" />
         <Lightformer form="rect" intensity={0.9} position={[-5, 1, 1]} rotation-y={Math.PI / 2} scale={[4, 6, 1]} color="#cfe3ff" />
         <Lightformer form="rect" intensity={0.7} position={[5, 0.5, 0]} rotation-y={-Math.PI / 2} scale={[4, 6, 1]} color="#ffd8c4" />
         <Lightformer form="ring" intensity={2.2} position={[0, 1, -5]} scale={3} color="#9cc8ff" />
@@ -265,8 +272,7 @@ const STILL = /[?&](still|cam=)/.test(location.search)
 // MSAA in the HDR composer turned frames black with blended particles in testing (and costs a lot on phones):
 // anti-aliasing comes from SMAA at device-pixel-ratio 2 instead. ?msaa=4 re-enables it for comparison.
 const MSAA = /[?&]msaa=4/.test(location.search) ? 4 : 0
-// iOS Safari: no ambient-occlusion pass (heavy, and a suspect for black frames); a black-frame guard covers the rest
-const IOS = /iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)
+const SHADOW = isMobile ? 1024 : 2048
 const SAFE_KEY = 'jasad.safeFx'
 const storedSafe = (() => { try { return localStorage.getItem(SAFE_KEY) === '1' } catch { return false } })()
 const FX = !/[?&]fx=0/.test(location.search)
@@ -307,10 +313,12 @@ function Effects({ lite }: { lite: boolean }) {
   if (isMobile || lite) {
     return (
       <EffectComposer multisampling={MSAA}>
-        {!lite && !IOS && !/noao/.test(location.search) ? <N8AO halfRes quality="performance" aoRadius={0.05} distanceFalloff={0.6} intensity={2.2} /> : <></>}
+        {/* light AO at half resolution, iOS included: the black-frame guard falls back to plain rendering if it ever fails */}
+        {!lite && !/noao/.test(location.search) ? <N8AO halfRes quality="performance" aoRadius={0.045} distanceFalloff={0.6} intensity={1.6} /> : <></>}
         <Bloom mipmapBlur luminanceThreshold={2.2} intensity={0.7} radius={0.6} />
         <Vignette offset={0.25} darkness={0.75} />
         <ToneMapping mode={ToneMappingMode.ACES_FILMIC} />
+        <Grade />
         <SMAA preset={SMAAPreset.HIGH} />
       </EffectComposer>
     )
@@ -322,6 +330,7 @@ function Effects({ lite }: { lite: boolean }) {
       <Bloom mipmapBlur luminanceThreshold={2.2} intensity={0.7} radius={0.6} />
       <Vignette offset={0.25} darkness={0.75} />
       <ToneMapping mode={ToneMappingMode.ACES_FILMIC} />
+      <Grade />
       <SMAA preset={SMAAPreset.HIGH} />
     </EffectComposer>
   )
@@ -346,6 +355,7 @@ export default function Scene() {
   return (
     <Canvas
       dpr={dpr}
+      shadows={{ type: THREE.PCFShadowMap }}
       gl={{ antialias: false, powerPreference: 'high-performance', toneMapping: safe ? THREE.ACESFilmicToneMapping : THREE.NoToneMapping }}
       onCreated={({ gl }) => {
         // a lost GPU context (memory pressure on phones) shows as a black canvas: reload once in safe mode

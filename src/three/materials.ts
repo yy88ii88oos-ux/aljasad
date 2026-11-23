@@ -15,7 +15,7 @@ export const CLIP_PLANE = new THREE.Plane(new THREE.Vector3(-1, 0, 0), 1000)
 
 // ---------------- colour palette (medical-atlas convention, high contrast) ----------------
 export const PALETTE = {
-  muscle: '#B8322E', tendon: '#F6F3EC', bone: '#E8DCC4', tooth: '#F7F3EA', cartilage: '#8FC8E0',
+  muscle: '#AA2C2A', tendon: '#F6F3EC', bone: '#E8DCC4', tooth: '#F7F3EA', cartilage: '#8FC8E0',
   artery: '#D42A2A', vein: '#2E5BD8', nerve: '#F2CF3A', lymph: '#3FB86B', skin: '#C98D74',
 }
 const ORGAN_COLORS: [RegExp, string][] = [
@@ -71,13 +71,13 @@ uniform float uTime; uniform float uBend; uniform vec3 uPivot; uniform vec3 uAxi
 #ifdef GENMORPH
 attribute vec3 gpos; attribute vec3 gnor;
 #endif
-attribute vec2 armw; attribute vec3 fdir;
-varying vec3 vObj; varying vec3 vFdir; varying vec3 vObjN;
+attribute vec2 armw; attribute vec3 fdir; attribute vec2 fpos;
+varying vec3 vObj; varying vec3 vFdir; varying vec3 vObjN; varying vec2 vFpos;
 vec3 rotAxis(vec3 v, vec3 a, float ang){ float c=cos(ang), s=sin(ang); return v*c + cross(a,v)*s + a*dot(a,v)*(1.0-c); }
 `
 const VERT_BEGIN = /* glsl */ `
 vec3 transformed = vec3( position );
-vObj = position; vFdir = fdir; vObjN = objectNormal;
+vObj = position; vFdir = fdir; vObjN = objectNormal; vFpos = fpos;
 #ifdef GENMORPH
 transformed = mix(transformed, gpos, uGen);
 #endif
@@ -108,7 +108,7 @@ const FRAG_HEAD = /* glsl */ `
 uniform float uCap; uniform vec3 uCapColor; uniform float uTime;
 uniform vec3 uEyeA; uniform vec3 uEyeB; uniform float uEyeR;
 uniform float uGlow; uniform vec3 uGlowColor; uniform float uCut;
-varying vec3 vObj; varying vec3 vFdir; varying vec3 vObjN;
+varying vec3 vObj; varying vec3 vFdir; varying vec3 vObjN; varying vec2 vFpos;
 #ifdef TEX
 uniform sampler2D tAlb; uniform sampler2D tNrm; uniform float uTexScale; uniform float uTexAmt; uniform float uNrmAmt;
 // one triplanar plane: albedo multiplier and the screen-space height gradient from the normal map's slopes
@@ -183,8 +183,36 @@ if (uCut > 0.001) {
   vec3 w = pow(abs(n), vec3(4.0)); w /= (w.x + w.y + w.z + 1e-5);
   vec3 alb = vec3(0.0); vec2 dh = vec2(0.0);
   jPlane(p.zy, w.x, alb, dh); jPlane(p.xz, w.y, alb, dh); jPlane(p.xy, w.z, alb, dh);
+#ifdef FIBERTEX
+  // ---- atlas muscle: fascicle grooves big enough to read from afar, tendinous ends, darkened silhouettes ----
+  vec3 ow = vObj;
+  float cu = dot(ow, a) * 0.8 + dot(ow, b) * 0.6;            // across the fibres (m)
+  float along = dot(ow, d);
+  float warp = jNoise(ow * 38.0) * 3.2 + jNoise(ow * 9.0) * 2.0;
+  float q1 = cu / 0.0065 + warp, q2 = cu / 0.0026 + warp * 1.7;
+  float a1 = 1.0 - smoothstep(0.22, 0.5, fwidth(q1)), a2 = 1.0 - smoothstep(0.22, 0.5, fwidth(q2));
+  float brk = 0.65 + 0.35 * jNoise(vec3(cu * 260.0, along * 22.0, 0.0));
+  float groove = (pow(0.5 + 0.5 * cos(q1 * 6.2832), 3.0) * a1 + 0.5 * pow(0.5 + 0.5 * cos(q2 * 6.2832), 2.0) * a2) * brk;
+  // tendon: the last stretch of each muscle along its fibres, with a ragged, interdigitating border
+  float L = max(vFpos.y, 1e-3);
+  float tl = mix(0.015, 0.12, smoothstep(0.17, 0.34, L)) * L;   // long limb muscles: real tendons; broad/short ones: a hint
+  float edgeN = jNoise(vec3(cu * 180.0, 0.0, L * 10.0)) - 0.5;
+  float tendon = 1.0 - smoothstep(tl * 0.35, tl * 1.05, vFpos.x + edgeN * tl * 0.9);
+  tendon *= step(0.002, vFpos.y);
+  alb = mix(alb * 2.0, mix(vec3(1.0), alb * 2.0, 0.35), tendon);
+  diffuseColor.rgb *= mix(vec3(1.0), alb, uTexAmt);
+  diffuseColor.rgb *= 1.0 - 0.28 * groove * (1.0 - tendon);
+  vec3 tcol = vec3(0.93, 0.91, 0.87) * (0.92 + 0.12 * jNoise(vec3(cu * 900.0, along * 30.0, 1.0)));
+  diffuseColor.rgb = mix(diffuseColor.rgb, tcol, tendon);
+  float gh = -groove * (1.0 - tendon) * 0.6;
+  normal = jPerturb( -vViewPosition, normal, dh * uNrmAmt + vec2(dFdx(gh), dFdy(gh)) * 0.5, faceDirection );
+  roughnessFactor = mix(roughnessFactor * (0.85 + 0.35 * groove), 0.3, tendon);
+  float ndv = abs(dot(normal, normalize(vViewPosition)));
+  diffuseColor.rgb *= mix(0.42, 1.0, smoothstep(0.04, 0.6, ndv));
+#else
   diffuseColor.rgb *= mix(vec3(1.0), alb * 2.0, uTexAmt);
   normal = jPerturb( -vViewPosition, normal, dh * uNrmAmt, faceDirection );
+#endif
 }
 #endif
 #ifdef FIBER
@@ -343,6 +371,13 @@ export interface EyeInfo { a: THREE.Vector3; b: THREE.Vector3; r: number }
 export function makeMaterial(s: Structure, eye?: EyeInfo): THREE.MeshPhysicalMaterial {
   const kind = kindOf(s)
   const color = new THREE.Color(baseColor(s))
+  if (kind === 'muscle') {
+    // each muscle a slightly different red, like hand-tinted atlas plates
+    let h = 2166136261
+    for (const ch of s.en.replace(/^(right|left) /, '')) h = Math.imul(h ^ ch.charCodeAt(0), 16777619)
+    const r1 = ((h >>> 0) % 1000) / 1000, r2 = ((h >>> 10) % 1000) / 1000, r3 = ((h >>> 20) % 1000) / 1000
+    color.offsetHSL((r1 - 0.5) * 0.035, (r2 - 0.5) * 0.16, (r3 - 0.5) * 0.09)
+  }
   const m = new THREE.MeshPhysicalMaterial({ color, side: THREE.DoubleSide, clippingPlanes: [CLIP_PLANE] })
   const defines: Record<string, string> = {}
   switch (kind) {

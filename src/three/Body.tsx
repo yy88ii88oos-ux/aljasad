@@ -24,6 +24,9 @@ const box = new THREE.Box3()
 const glowCol = new THREE.Color()
 const WARM = new THREE.Color('#ffd9a0')
 const EXT = { x: 0.34, y: 0.86, z: 0.2 }
+// atlas look: no staring eyeballs, ears or nose cartilage over the bare muscles and organs
+const FACE = /^(eyeball|ear|set of nasal cartilages)$|^(right|left) (cornea|lens of eyeball|vitreous body|retina)$/
+let shadowFrame = 0
 
 // occluders of the selection: real ray casts (BVH) from the eye to a few points of the selected structure,
 // redone only when the selection or the camera changes
@@ -104,6 +107,7 @@ export default function Body() {
     const xray = st.mode === 'xray'
 
     const study = st.study ? STUDIES[st.study] : null
+    let moving = Math.abs(explodeTarget - ex) > 1e-4 || st.life || !!st.tour || !!study
     for (const p of parts.values()) {
       const s = p.s
       // ---------- visibility target ----------
@@ -115,6 +119,7 @@ export default function Body() {
         else if (li < st.depth) target = 0
       }
       if (removed?.has(p.id)) target = 0
+      if (!xray && st.mode !== 'section' && st.depth >= 2 && FACE.test(s.en) && p.id !== st.selected) target = 0
       // «جسدي»: only the study's structures, peeled by its own steps
       if (study) { const lv = study.levels[p.id]; target = lv === undefined || lv < st.studyStep || removed?.has(p.id) ? 0 : 1 }
       let ghost = false
@@ -123,6 +128,7 @@ export default function Body() {
       if (st.tour === 'arm' && s.group !== 'skeleton' && !(s.group === 'muscles' && /arm|brachi|deltoid|biceps|triceps|anconeus|pectoralis major|carpi|pronator|supinator/.test(s.en))) target = Math.min(target, 0)
       p.ghost = ghost && !xray
       p.target = target
+      if (p.fade !== target) moving = true
       p.fade += Math.sign(target - p.fade) * Math.min(Math.abs(target - p.fade), fadeStep * (target < p.fade && target > 0 ? 3 : 1))
       const visible = p.fade > 0.01
       p.mesh.visible = visible
@@ -134,6 +140,10 @@ export default function Body() {
       const m = p.mat
       if (useX) { if (p.mesh.material !== p.xray) p.mesh.material = p.xray }
       else if (p.mesh.material !== m) p.mesh.material = m
+      // only solid, settled surfaces cast the key light's shadow
+      // (skin and fat are morphed in the vertex shader, which the depth pass does not follow: they never cast)
+      const cast = !useX && !xray && p.fade > 0.6 && !/^(clear|skin|fat)$/.test(m.userData.kind) && !dimmed?.has(p.id)
+      if (p.mesh.castShadow !== cast) { p.mesh.castShadow = cast; moving = true }
 
       if (!useX) {
         const op = (m.userData.baseOpacity as number) * (dimmed?.has(p.id) ? 0.28 : 1)
@@ -179,6 +189,9 @@ export default function Body() {
         p.mesh.position.copy(tmp)
       }
     }
+    // shadow map: redrawn while anything moves, otherwise only now and then (the lights are fixed in the world)
+    gl.shadowMap.autoUpdate = false
+    if (moving || ++shadowFrame % 45 === 0) gl.shadowMap.needsUpdate = true
   })
 
   // ---------- picking ----------
