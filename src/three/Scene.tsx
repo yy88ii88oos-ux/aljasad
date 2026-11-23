@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Canvas, useFrame, useThree } from '@react-three/fiber'
 import { Environment, Lightformer, OrbitControls, PerformanceMonitor } from '@react-three/drei'
-import { EffectComposer, Bloom, SSAO, DepthOfField, Vignette, ToneMapping } from '@react-three/postprocessing'
-import { BlendFunction, ToneMappingMode, type DepthOfFieldEffect } from 'postprocessing'
+import { EffectComposer, Bloom, SSAO, DepthOfField, Vignette, ToneMapping, SMAA } from '@react-three/postprocessing'
+import { BlendFunction, ToneMappingMode, SMAAPreset, type DepthOfFieldEffect } from 'postprocessing'
 import * as THREE from 'three'
 import gsap from 'gsap'
 
@@ -65,7 +65,15 @@ function Rig() {
   const ref = useRef<OrbitControlsImpl>(null)
   const { camera } = useThree()
   const focusTick = useStore((s) => s.focusTick)
-  useEffect(() => { rig.controls = ref.current; rig.camera = camera as THREE.PerspectiveCamera }, [camera])
+  useEffect(() => { rig.controls = ref.current; rig.camera = camera as THREE.PerspectiveCamera; (window as unknown as Record<string, unknown>).__rig = rig }, [camera])
+  // ?cam=px,py,pz,tx,ty,tz pins the camera (screenshots, shareable views)
+  const ready = useStore((s) => s.ready)
+  useEffect(() => {
+    const m = /[?&]cam=([-\d.,]+)/.exec(location.search)
+    if (!ready || !m || !ref.current) return
+    const v = m[1].split(',').map(Number)
+    camera.position.set(v[0], v[1], v[2]); ref.current.target.set(v[3], v[4], v[5]); ref.current.update()
+  }, [ready, camera])
   useEffect(() => {
     const sel = useStore.getState().selected
     if (focusTick && sel) flyToStructure(sel)
@@ -80,13 +88,20 @@ function Rig() {
     flyTo(new THREE.Vector3(...v).multiplyScalar(k), new THREE.Vector3(0, axis === 'y' ? -0.1 : 0.02, 0), 1.6)
   }, [mode, axis])
   useFrame(() => {
+    const cam = camera as THREE.PerspectiveCamera
+    if (ref.current) {
+      // near plane follows the orbit distance → full depth precision at every zoom (no z-fighting speckles)
+      const d = cam.position.distanceTo(ref.current.target)
+      const near = THREE.MathUtils.clamp(d * 0.035, 0.002, 0.06)
+      if (Math.abs(near - cam.near) / cam.near > 0.08) { cam.near = near; cam.far = 60; cam.updateProjectionMatrix() }
+    }
     const st = useStore.getState()
     const want = st.selected && st.focused ? 1 : 0
     rig.dof += (want - rig.dof) * 0.05
-    if (ref.current) ref.current.autoRotate = !st.selected && !st.tour && st.ready
+    if (ref.current) ref.current.autoRotate = !st.selected && !st.tour && st.ready && !STILL
   })
   return (
-    <OrbitControls ref={ref} makeDefault enableDamping dampingFactor={0.08} autoRotateSpeed={0.35} minDistance={0.12} maxDistance={5}
+    <OrbitControls ref={ref} makeDefault enableDamping dampingFactor={0.08} autoRotateSpeed={0.35} minDistance={0.04} maxDistance={5}
       target={HOME.target.toArray() as [number, number, number]} />
   )
 }
@@ -119,7 +134,7 @@ function Backdrop() {
         void main(){ vec3 p = position; p.y += mod(uTime*0.02*(0.4+seed) + seed*4.0, 4.0) - 2.0 - position.y*0.0;
           p.x += sin(uTime*0.1+seed*20.0)*0.08; vec4 mv = modelViewMatrix*vec4(p,1.0);
           gl_Position = projectionMatrix*mv; gl_PointSize = (2.0+seed*5.0)*(3.0/-mv.z); vA = 0.25+0.5*sin(uTime*0.5+seed*30.0)*0.5+0.25; }`,
-      fragmentShader: 'varying float vA; void main(){ float r=length(gl_PointCoord-0.5); if(r>0.5) discard; gl_FragColor=vec4(vec3(0.55,0.75,1.0)*smoothstep(0.5,0.0,r)*vA,1.0); }',
+      fragmentShader: 'varying float vA; void main(){ float r=length(gl_PointCoord-0.5); if(r>0.5) discard; gl_FragColor=vec4(vec3(0.55,0.75,1.0)*smoothstep(0.5,0.0,r)*vA*0.55,1.0); }',
     })
     const pts = new THREE.Points(g, m); pts.frustumCulled = false
     return pts
@@ -153,6 +168,7 @@ function Lights() {
   )
 }
 
+const STILL = /[?&](still|cam=)/.test(location.search)
 const FX = !/[?&]fx=0/.test(location.search)
 function Effects({ lite }: { lite: boolean }) {
   const dofRef = useRef<DepthOfFieldEffect>(null)
@@ -164,10 +180,11 @@ function Effects({ lite }: { lite: boolean }) {
   })
   if (isMobile || lite) {
     return (
-      <EffectComposer multisampling={0}>
+      <EffectComposer multisampling={4}>
         <Bloom mipmapBlur luminanceThreshold={2.2} intensity={0.7} radius={0.6} />
         <Vignette offset={0.25} darkness={0.75} />
         <ToneMapping mode={ToneMappingMode.ACES_FILMIC} />
+        <SMAA preset={SMAAPreset.HIGH} />
       </EffectComposer>
     )
   }
@@ -178,13 +195,16 @@ function Effects({ lite }: { lite: boolean }) {
       <Bloom mipmapBlur luminanceThreshold={2.2} intensity={0.7} radius={0.6} />
       <Vignette offset={0.25} darkness={0.75} />
       <ToneMapping mode={ToneMappingMode.ACES_FILMIC} />
+      <SMAA preset={SMAAPreset.HIGH} />
     </EffectComposer>
   )
 }
 
 export default function Scene() {
   const ready = useStore((s) => s.ready)
-  const maxDpr = Math.min(window.devicePixelRatio || 1, isMobile ? 1.6 : 2)
+  const maxDpr = Math.min(window.devicePixelRatio || 1, 2)
+  // adaptive quality never drops below this: edges stay crisp on phones
+  const minDpr = Math.min(maxDpr, 1.5)
   const [dpr, setDpr] = useState(maxDpr)
   const [lite, setLite] = useState(false)
   return (
@@ -201,7 +221,7 @@ export default function Scene() {
       {ready && <Tours />}
       <Rig />
       {/* adaptive quality: lower resolution first, then drop SSAO + DoF */}
-      <PerformanceMonitor flipflops={4} onDecline={() => { if (dpr > 1.01) setDpr(Math.max(1, dpr - 0.4)); else setLite(true) }} onIncline={() => setDpr(Math.min(maxDpr, dpr + 0.25))} />
+      <PerformanceMonitor flipflops={4} onDecline={() => { if (dpr > minDpr + 0.01) setDpr(Math.max(minDpr, dpr - 0.25)); else setLite(true) }} onIncline={() => setDpr(Math.min(maxDpr, dpr + 0.25))} />
       {FX && <Effects lite={lite} />}
     </Canvas>
   )

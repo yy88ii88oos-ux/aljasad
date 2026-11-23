@@ -23,7 +23,7 @@ const ORGAN_COLORS: [RegExp, string][] = [
 const VEIN = /vein|vena|sinus/
 function baseColor(s: Structure): string {
   const n = s.en
-  if (s.group === 'skin') return '#d9a089'
+  if (s.group === 'skin') return '#c98d74'
   if (s.group === 'skeleton') {
     if (/tooth/.test(n)) return '#f4efe2'
     if (/cartilage|disk/.test(n)) return '#cfe0dc'
@@ -134,7 +134,8 @@ const FRAG_END = /* glsl */ `
 if (uCap > 0.5 && !gl_FrontFacing) { gl_FragColor = vec4(uCapColor, 1.0); }
 // guard the half-float HDR buffer: NaN/Inf from razor-sharp clearcoat lobes would smear through bloom
 if (any(isnan(gl_FragColor)) || any(isinf(gl_FragColor))) gl_FragColor = vec4(diffuseColor.rgb * 0.4, diffuseColor.a);
-gl_FragColor.rgb = min(gl_FragColor.rgb, vec3(24.0));
+// only intentional glow (emissive) may exceed the bloom threshold; lit highlights are capped below it
+{ vec3 lit = max(gl_FragColor.rgb - totalEmissiveRadiance, vec3(0.0)); gl_FragColor.rgb = min(lit, vec3(1.6)) + min(totalEmissiveRadiance, vec3(8.0)); }
 #include <dithering_fragment>
 `
 
@@ -159,34 +160,36 @@ export function makeMaterial(s: Structure): THREE.MeshPhysicalMaterial {
       defines.ORGANIC = ''
       break
     case 'tooth':
-      Object.assign(m, { roughness: 0.25, clearcoat: 1, clearcoatRoughness: 0.08 })
+      Object.assign(m, { roughness: 0.3, clearcoat: 0.8, clearcoatRoughness: 0.2 })
       break
     case 'tissue':
-      Object.assign(m, { roughness: 0.4, clearcoat: 0.6, clearcoatRoughness: 0.25, sheen: 0.6, sheenColor: new THREE.Color('#ffffff') })
+      Object.assign(m, { roughness: 0.45, clearcoat: 0.5, clearcoatRoughness: 0.3, sheen: 0.6, sheenColor: new THREE.Color('#ffffff') })
       break
     case 'muscle':
-      Object.assign(m, { roughness: 0.42, clearcoat: 0.55, clearcoatRoughness: 0.22, sheen: 0.5, sheenColor: new THREE.Color('#ff6a5a'), sheenRoughness: 0.4 })
+      Object.assign(m, { roughness: 0.48, clearcoat: 0.45, clearcoatRoughness: 0.3, sheen: 0.5, sheenColor: new THREE.Color('#ff6a5a'), sheenRoughness: 0.4 })
       defines.FIBER = ''
       break
     case 'organ':
-      Object.assign(m, { roughness: 0.32, clearcoat: 1, clearcoatRoughness: 0.06, sheen: 0.3, sheenColor: new THREE.Color('#ffd0c0') })
+      Object.assign(m, { roughness: 0.36, clearcoat: 0.9, clearcoatRoughness: 0.18, sheen: 0.3, sheenColor: new THREE.Color('#ffd0c0') })
       defines.ORGANIC = ''
       break
     case 'vessel':
-      Object.assign(m, { roughness: 0.3, clearcoat: 1, clearcoatRoughness: 0.05 })
+      Object.assign(m, { roughness: 0.34, clearcoat: 0.9, clearcoatRoughness: 0.18 })
       break
     case 'brain':
-      Object.assign(m, { roughness: 0.38, clearcoat: 0.9, clearcoatRoughness: 0.12, sheen: 0.4, sheenColor: new THREE.Color('#ffe0d8') })
+      Object.assign(m, { roughness: 0.4, clearcoat: 0.8, clearcoatRoughness: 0.2, sheen: 0.4, sheenColor: new THREE.Color('#ffe0d8') })
       defines.ORGANIC = ''
       break
     case 'skin':
-      Object.assign(m, { roughness: 0.28, clearcoat: 1, clearcoatRoughness: 0.04, transparent: true, opacity: 0.2, depthWrite: false, side: THREE.FrontSide, sheen: 0.5, sheenColor: new THREE.Color('#ffd9c8') })
-      defines.GLASS = ''
+      Object.assign(m, { roughness: 0.55, clearcoat: 0.25, clearcoatRoughness: 0.45, side: THREE.FrontSide, sheen: 0.8, sheenColor: new THREE.Color('#ff9f86'), sheenRoughness: 0.5 })
       defines.SKINPUSH = ''
       break
   }
   m.defines = { ...(m.defines || {}), ...defines }
-  const capColor = color.clone().lerp(new THREE.Color('#ffffff'), 0.15).multiplyScalar(1.1)
+  // deeper layers and thin sheets (tendons, aponeuroses, cartilage) yield to the surface in front of them
+  const off = ({ skin: 0, superficial: 0, deep: 1, organs: 2, bones: 3 } as Record<string, number>)[s.layer] + (kind === 'tissue' ? 1.5 : 0)
+  if (off > 0) Object.assign(m, { polygonOffset: true, polygonOffsetFactor: off * 0.5, polygonOffsetUnits: off * 2 })
+  const capColor = color.clone().multiplyScalar(kind === 'bone' || kind === 'tooth' ? 0.92 : 0.78)
   m.userData = { baseColor: color.clone(), kind, baseOpacity: m.opacity, transparentBase: m.transparent }
   m.onBeforeCompile = (sh) => {
     Object.assign(sh.uniforms, SHARED, { uCapColor: { value: capColor }, uPush: { value: kind === 'skin' ? 0.0018 : 0 } })

@@ -94,11 +94,10 @@ export default function Body() {
       else if (p.mesh.material !== m) p.mesh.material = m
 
       if (!useX) {
-        const baseOp = m.userData.baseOpacity as number
-        const op = (s.layer === 'skin' ? baseOp : 1) * p.fade
-        const needT = s.layer === 'skin' || op < 0.995
+        const op = p.fade
+        const needT = op < 0.995
         if (m.transparent !== needT) { m.transparent = needT; m.needsUpdate = true }
-        m.depthWrite = s.layer !== 'skin' && op > 0.6
+        m.depthWrite = op > 0.6
         m.opacity = op
         // highlight glow (bloom picks up emissive > 1)
         const want = p.id === st.selected ? 0.75 + 0.25 * Math.sin(t * 3) : st.highlight.includes(p.id) ? 0.7 + 0.3 * Math.sin(t * 5) : p.id === st.hovered ? 0.55 : 0
