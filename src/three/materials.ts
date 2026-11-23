@@ -139,7 +139,7 @@ float jNoise(vec3 p){ vec3 i=floor(p), f=fract(p); f=f*f*(3.0-2.0*f);
 #ifdef ABDO
 // rectus abdominis plan (object space, metres): linea alba down the midline + three tendinous intersections —
 // at the umbilicus, just below the costal margin and one between. Segments between them bulge.
-// Drawn only as a faint relief on the skin and fat over the abdomen; the muscle keeps its own geometry.
+// Drawn only as a faint relief on the skin over the abdomen; the muscle keeps its own geometry.
 const vec3 ABY = vec3(0.163, 0.240, 0.318);
 float abdoField(vec3 o, out float line){
   float ax = abs(o.x);
@@ -502,7 +502,6 @@ export function makeMaterial(s: Structure, eye?: EyeInfo): THREE.MeshPhysicalMat
   const rim = ({ skin: 0.32, bone: 0.42, tooth: 0.3, muscle: 0.3, organ: 0.22, vessel: 0.2, brain: 0.22, tissue: 0.28, fat: 0.25 } as Partial<Record<Kind, number>>)[kind]
   if (rim) defines.RIM = rim.toFixed(2)
   if (kind === 'skin') defines.ABDO = '1.4'
-  if (kind === 'fat') defines.ABDO = '1.4'
   m.defines = { ...(m.defines || {}), ...defines }
   // deeper layers and thin sheets (tendons, aponeuroses, cartilage) yield to the surface in front of them
   const off = ({ skin: 0, superficial: 0, deep: 1, organs: 2, bones: 3 } as Record<string, number>)[s.layer] + (kind === 'tissue' ? 1.5 : 0)
