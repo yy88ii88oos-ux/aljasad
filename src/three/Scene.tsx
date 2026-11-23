@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Canvas, useFrame, useThree } from '@react-three/fiber'
-import { Environment, Lightformer, OrbitControls, PerformanceMonitor } from '@react-three/drei'
+import { Environment, Html, Lightformer, OrbitControls, PerformanceMonitor } from '@react-three/drei'
 import { EffectComposer, Bloom, N8AO, DepthOfField, Vignette, ToneMapping, SMAA } from '@react-three/postprocessing'
 import { ToneMappingMode, SMAAPreset, type DepthOfFieldEffect } from 'postprocessing'
 import * as THREE from 'three'
@@ -174,6 +174,27 @@ function FloorShadow() {
   return <mesh material={mat} position={[0, FLOOR_Y, -0.02]} rotation-x={-Math.PI / 2} renderOrder={-5}><planeGeometry args={[0.7, 0.5]} /></mesh>
 }
 
+// elegant name tag beside the selected structure (follows it as the camera moves)
+function SelLabel() {
+  const selected = useStore((s) => s.selected)
+  const tour = useStore((s) => s.tour)
+  const ref = useRef<THREE.Group>(null)
+  useFrame(() => {
+    const p = selected ? parts.get(selected) : undefined
+    if (p && ref.current) {
+      // anchor at the structure's side that faces the screen-right, slightly above centre
+      const s = p.s
+      ref.current.position.set(s.c[0], s.c[1] + (s.max[1] - s.min[1]) * 0.25, s.c[2]).add(p.mesh.position)
+    }
+  })
+  if (!selected || tour || !STRUCTURES[selected]) return null
+  return (
+    <group ref={ref}>
+      <Html zIndexRange={[5, 0]} style={{ pointerEvents: 'none' }}><div className="sel-label">{STRUCTURES[selected].ar}</div></Html>
+    </group>
+  )
+}
+
 function Lights() {
   return (
     <>
@@ -244,6 +265,7 @@ export default function Scene() {
       <Backdrop />
       <Lights />
       <FloorShadow />
+      <SelLabel />
       <Body />
       {ready && <Life />}
       {ready && <Tours />}

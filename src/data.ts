@@ -4,7 +4,7 @@ import flowJson from '../data/flow.json'
 export type Layer = 'skin' | 'superficial' | 'deep' | 'organs' | 'bones'
 export type Group = 'skin' | 'skeleton' | 'muscles' | 'cardio' | 'nervous' | 'organs'
 export interface Structure {
-  id: string; ar: string; en: string; system: string; group: Group; layer: Layer; side: string | null
+  id: string; ar: string; en: string; la?: string; system: string; group: Group; layer: Layer; side: string | null
   fn: string; fact: string; connected: string[]; c: [number, number, number]; min: [number, number, number]; max: [number, number, number]
 }
 export const STRUCTURES = structuresJson as unknown as Record<string, Structure>

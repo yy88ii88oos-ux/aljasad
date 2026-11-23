@@ -87,6 +87,7 @@ export default function Body() {
     // selection: whatever sits between the camera and the selected structure turns to glass
     const sel = st.selected && !st.tour ? parts.get(st.selected) : undefined
     const removed = st.removed.length ? new Set(st.removed) : null
+    const dimmed = st.dimmed.length ? new Set(st.dimmed) : null
     if (sel) updateGhosts(sel, camera, t)
     else if (ghosts.size) ghosts.clear()
     const pulse = st.life ? heartPulse(t) : 0
@@ -122,7 +123,7 @@ export default function Body() {
       else if (p.mesh.material !== m) p.mesh.material = m
 
       if (!useX) {
-        const op = p.fade
+        const op = p.fade * (dimmed?.has(p.id) ? 0.28 : 1)
         const needT = op < 0.995
         if (m.transparent !== needT) { m.transparent = needT; m.needsUpdate = true }
         m.depthWrite = op > 0.6

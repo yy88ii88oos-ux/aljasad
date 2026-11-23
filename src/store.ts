@@ -25,6 +25,7 @@ interface State {
   ready: boolean
   streaming: number // 0..1 background (muscles) load
   page: 'viewer' | 'sources'
+  dimmed: string[] // translucent structures (card «تعتيم»)
   removed: string[] // finger dissection: structures peeled away, in order (undo pops)
   set: (p: Partial<State>) => void
   select: (id: string | null, fly?: boolean) => void
@@ -32,6 +33,7 @@ interface State {
   remove: (id: string) => void
   undo: () => void
   restoreAll: () => void
+  toggleDim: (id: string) => void
 }
 
 // deep links: ?mode=xray&depth=3&sys=skeletal,muscular&sel=FMA7274&fly=1&tour=blood&axis=y&pos=0.4
@@ -69,11 +71,13 @@ export const useStore = create<State>((set) => ({
   streaming: 0,
   page: typeof location !== 'undefined' && location.hash === '#sources' ? 'sources' : 'viewer',
   removed: [],
+  dimmed: [],
   ...initial,
   set: (p) => set(p),
   remove: (id) => set((s) => ({ removed: s.removed.includes(id) ? s.removed : [...s.removed, id], selected: s.selected === id ? null : s.selected, focused: s.selected === id ? false : s.focused, isolated: false })),
   undo: () => set((s) => ({ removed: s.removed.slice(0, -1) })),
-  restoreAll: () => set({ removed: [] }),
+  restoreAll: () => set({ removed: [], dimmed: [] }),
+  toggleDim: (id) => set((s) => ({ dimmed: s.dimmed.includes(id) ? s.dimmed.filter((x) => x !== id) : [...s.dimmed, id] })),
   select: (id, fly) => set((s) => ({ selected: id, isolated: id ? s.isolated : false, focusTick: fly ? s.focusTick + 1 : s.focusTick, focused: !!(id && (fly || (s.focused && id === s.selected))) })),
   toggleSystem: (k) => set((s) => ({ systems: { ...s.systems, [k]: !s.systems[k] } })),
 }))

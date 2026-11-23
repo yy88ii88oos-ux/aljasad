@@ -67,15 +67,28 @@ canvas { touch-action: none; }
 .systems li.all button { color: var(--accent2); font-size: 13px; }
 
 /* ---------- info card ---------- */
-.card { position: absolute; top: 84px; inset-inline-end: 22px; width: 360px; max-height: calc(100vh - 260px); overflow: auto; border-radius: 22px; padding: 22px 22px 16px; animation: cardIn 0.5s cubic-bezier(0.2, 0.9, 0.2, 1); }
+.card { position: absolute; bottom: 128px; left: 22px; width: 380px; max-height: calc(100vh - 230px); overflow: auto; border-radius: 22px; padding: 18px 22px 14px; animation: cardIn 0.5s cubic-bezier(0.2, 0.9, 0.2, 1); z-index: 8; }
 @keyframes cardIn { from { opacity: 0; transform: translateY(12px) scale(0.98); } }
 .card-x { position: absolute; top: 12px; inset-inline-end: 14px; font-size: 24px; color: var(--muted); width: 34px; height: 34px; border-radius: 50%; line-height: 1; }
 .card-x:hover { background: rgba(255, 255, 255, 0.07); color: var(--ink); }
 .card-sys { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--c); font-weight: 600; }
 .card-sys i { width: 9px; height: 9px; border-radius: 50%; background: var(--c); box-shadow: 0 0 12px var(--c); }
 .card-sys span { color: var(--muted); font-weight: 400; }
-.card-ar { margin: 10px 0 2px; font-size: 26px; line-height: 1.35; font-weight: 700; }
-.card-en { color: var(--muted); font-size: 13px; text-align: right; font-style: italic; }
+.card-ar { margin: 6px 0 2px; font-size: 26px; line-height: 1.35; font-weight: 700; }
+.card-names { display: flex; flex-wrap: wrap; gap: 2px 14px; justify-content: flex-end; }
+.card-en { color: var(--muted); font-size: 13px; font-style: italic; }
+.card-la { color: #b9a6ff; font-size: 13px; font-family: Georgia, 'Times New Roman', serif; font-style: italic; letter-spacing: 0.02em; }
+.card-actions { display: flex; gap: 6px; margin-top: 14px; }
+.act { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 9px 4px 7px; border-radius: 14px; background: rgba(255, 255, 255, 0.05); border: 1px solid var(--line); font-size: 12.5px; color: #dfe6f3; transition: background 0.2s, border-color 0.2s; }
+.act svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+.act:hover, .act.on { background: rgba(255, 77, 94, 0.16); border-color: rgba(255, 77, 94, 0.42); }
+.act:disabled { opacity: 0.4; }
+.card-more { display: flex; gap: 6px; align-items: center; margin: 10px auto 0; font-size: 13px; color: var(--accent2); }
+.card-body { animation: cardIn 0.35s ease; }
+/* small name tag that floats beside the selected structure */
+.sel-label { position: relative; pointer-events: none; white-space: nowrap; transform: translate(14px, -50%); padding: 4px 10px 4px 12px; border-radius: 999px; font-size: 13px; font-weight: 600; color: #fff;
+  background: rgba(12, 18, 34, 0.62); border: 1px solid rgba(255, 217, 160, 0.45); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); box-shadow: 0 0 18px rgba(255, 190, 120, 0.25); animation: cardIn 0.4s ease; }
+.sel-label::before { content: ''; position: absolute; right: 100%; top: 50%; width: 12px; height: 1px; background: rgba(255, 217, 160, 0.6); }
 .card h3 { margin: 18px 0 6px; font-size: 13px; color: var(--accent2); font-weight: 600; }
 .card p { margin: 0; line-height: 1.85; font-size: 15px; color: #d7deec; }
 .card-fact { margin-top: 16px; padding: 12px 14px; border-radius: 14px; background: linear-gradient(135deg, rgba(255, 200, 120, 0.1), rgba(255, 77, 94, 0.06)); border: 1px solid rgba(255, 200, 120, 0.16); }
@@ -84,7 +97,6 @@ canvas { touch-action: none; }
 .chips { display: flex; flex-wrap: wrap; gap: 6px; }
 .chip { font-size: 12.5px; padding: 5px 10px; border-radius: 999px; background: rgba(255, 255, 255, 0.05); border: 1px solid var(--line); color: #cfd7e6; }
 .chip:hover { background: rgba(127, 211, 247, 0.12); }
-.card-actions { display: flex; gap: 8px; margin-top: 18px; }
 .btn { flex: 1; padding: 10px; border-radius: 12px; background: rgba(255, 255, 255, 0.06); border: 1px solid var(--line); font-size: 14px; font-weight: 600; }
 .btn:hover, .btn.on { background: rgba(255, 77, 94, 0.18); border-color: rgba(255, 77, 94, 0.4); }
 .card-id { margin-top: 10px; font-size: 11px; color: #5d6780; text-align: left; }
@@ -156,7 +168,8 @@ canvas { touch-action: none; }
   .systems { top: 112px; inset-inline-start: 10px; width: auto; max-width: 190px; padding: 3px; }
   .systems-head { padding: 6px 10px; font-size: 13px; gap: 10px; }
   .systems li > button:first-child { padding: 5px 9px; font-size: 13px; }
-  .card { top: auto; bottom: 0; inset-inline: 0; width: auto; max-height: 52vh; border-radius: 22px 22px 0 0; padding: 18px 18px 14px; z-index: 10; }
+  .card { top: auto; bottom: 0; left: 0; right: 0; width: auto; max-height: 58vh; border-radius: 22px 22px 0 0; padding: 14px 14px calc(12px + env(safe-area-inset-bottom, 0px)); z-index: 10; }
+  .act { font-size: 11.5px; padding: 8px 2px 6px; }
   .card-ar { font-size: 22px; }
   .card p { font-size: 14px; }
   .dock { bottom: 10px; gap: 6px; }

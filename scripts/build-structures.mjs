@@ -1,4 +1,5 @@
 // Builds data/structures.json from data/geometry.json + Arabic terminology & knowledge base.
+import { latin } from './latin.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
 import { T, ORD_PATTERNS, ORD_EN, DIGITS, PHALANX } from './ar-dict.mjs';
@@ -82,7 +83,7 @@ for (const id of ids) {
   const near = ids.filter((o) => o !== id && geo[o].group !== 'skin' && gap(g, geo[o]) < 0.004)
     .sort((x, y) => dist(g, geo[x]) - dist(g, geo[y])).slice(0, 6);
   out[id] = {
-    id, ar: n ? n.ar : g.en, en: g.en.replace(/, nsn$/, ''), system: g.system, group: g.group, layer: layerOf(g, b),
+    id, ar: n ? n.ar : g.en, en: g.en.replace(/, nsn$/, ''), la: latin(b.replace(/, nsn$/, '')), system: g.system, group: g.group, layer: layerOf(g, b),
     side: n?.side || null, fn: inf?.fn || '', fact: inf?.fact || '', connected: near,
     c: g.centroid, min: g.min, max: g.max,
   };
