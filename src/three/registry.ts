@@ -94,10 +94,9 @@ function prepare(mesh: THREE.Mesh, s: Structure) {
     poseGeometry(geo, s)
     const n = geo.attributes.position.count
     if (s.en === 'linea alba') {
-      // the sheet lies 3–5 mm behind the recti's medial edges, which left a dark slit: bring it forward to bridge the gap,
-      // still a little sunk (deepest at the midline); its shader paints the pale band and the red to either side
+      // a fine white seam rather than a broad band: squeeze it toward the midline, just under the recti's surface
       const P = geo.attributes.position as THREE.BufferAttribute
-      for (let i = 0; i < n; i++) { const dx = Math.min(1, Math.abs(P.getX(i) - s.c[0]) / 0.009); P.setZ(i, P.getZ(i) + 0.0032 - 0.0008 * dx * dx) }
+      for (let i = 0; i < n; i++) { P.setX(i, s.c[0] + (P.getX(i) - s.c[0]) * 0.3); P.setZ(i, P.getZ(i) - 0.0008) }
       geo.computeVertexNormals()
     }
     if (s.group === 'muscles') {

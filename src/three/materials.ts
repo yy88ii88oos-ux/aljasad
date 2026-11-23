@@ -139,7 +139,7 @@ float jNoise(vec3 p){ vec3 i=floor(p), f=fract(p); f=f*f*(3.0-2.0*f);
 #ifdef ABDO
 // rectus abdominis plan (object space, metres): linea alba down the midline + three tendinous intersections —
 // at the umbilicus, just below the costal margin and one between. Segments between them bulge.
-// Shared by the recti (drawn) and the skin / fat over them (a faint shadow of the same relief).
+// Drawn only as a faint relief on the skin and fat over the abdomen; the muscle keeps its own geometry.
 const vec3 ABY = vec3(0.163, 0.240, 0.318);
 float abdoField(vec3 o, out float line){
   float ax = abs(o.x);
@@ -163,42 +163,6 @@ float abdoField(vec3 o, out float line){
   // height (0 in the grooves, 1 on the crown of each segment)
   return smoothstep(0.0, 0.022, dl) * smoothstep(0.0, 0.016, dm);
 }
-// linea alba half-width (m): ~8 mm above the umbilicus, a hair-thin seam below it
-float lineaHW(float y){ return mix(0.0009, 0.0062, smoothstep(0.125, 0.175, y)); }
-#ifdef RECTUS
-// the recti themselves: intersections as an anatomist draws them — the lowest at the umbilicus with one long
-// unbroken segment below, shorter segments above; each line wavy and oblique, set differently on the two sides,
-// some stopping short of the lateral border. line = the pale band, sh = soft shadow along its edges, h = segment dome.
-float rectusField(vec3 o, out float line, out float sh){
-  float ax = abs(o.x);
-  bool L = o.x > 0.0;
-  float aa = fwidth(o.y) + fwidth(o.x);
-  float xl = mix(0.062, 0.078, smoothstep(0.05, 0.3, o.y));      // lateral border of the rectus
-  vec3 Y    = L ? vec3(0.162, 0.246, 0.303) : vec3(0.165, 0.238, 0.309);
-  vec3 tilt = L ? vec3(0.10, 0.17, 0.05)    : vec3(0.05, 0.08, 0.19);   // rise toward the flank (m per m)
-  vec3 ext  = L ? vec3(1.0, 0.62, 0.86)     : vec3(0.8, 1.0, 0.58);     // how far across the muscle each line reaches
-  float seed = L ? 0.0 : 31.0;
-  float dl = 1.0; line = 0.0; sh = 0.0;
-  for (int i = 0; i < 3; i++) {
-    float fi = float(i) + seed;
-    float wav = (jNoise(vec3(ax * 38.0, fi * 5.3, 0.0)) - 0.5) * 0.012 + (jNoise(vec3(ax * 110.0, fi * 2.1, 3.0)) - 0.5) * 0.0028;
-    float y0 = Y[i] + ax * tilt[i] + wav;
-    float d = abs(o.y - y0);
-    // reach: the line thins to a point where it stops
-    float reach = ext[i] * xl;
-    float pres = 1.0 - smoothstep(reach - 0.012, reach, ax);
-    dl = min(dl, d + (1.0 - pres) * 0.03);
-    float hw = 0.0017 * (0.25 + 0.75 * pres) * (0.85 + 0.3 * jNoise(vec3(ax * 200.0, fi, 7.0)));
-    line = max(line, (1.0 - smoothstep(hw * 0.6, hw + aa + 0.0012, d)) * smoothstep(0.0, 0.7, pres));
-    sh = max(sh, (1.0 - smoothstep(hw, hw + 0.0075, d)) * pres);
-  }
-  float dm = ax - lineaHW(o.y);
-  line = max(line, 1.0 - smoothstep(0.0, aa + 0.0008, dm));
-  sh = max(sh, 1.0 - smoothstep(0.0, 0.006, dm));
-  sh = max(sh - line, 0.0);
-  return smoothstep(0.0, 0.02, dl) * smoothstep(0.0, 0.014, dm);
-}
-#endif
 float abdoMask(vec3 o){
   float xl = mix(0.062, 0.08, smoothstep(0.05, 0.3, o.y));
   return (1.0 - smoothstep(xl - 0.012, xl + 0.004, abs(o.x))) * smoothstep(0.0, 0.03, o.y) * (1.0 - smoothstep(0.35, 0.385, o.y)) * smoothstep(0.03, 0.06, o.z);
@@ -356,42 +320,12 @@ roughnessFactor = clamp(roughnessFactor * (0.78 + 0.45 * fh), 0.18, 1.0);
 #endif
 #ifdef ABDO
 {
-#ifdef RECTUS
-  // pale, pinkish tendinous bands sunk a little into the muscle, a soft shadow along their edges, domed segments between.
-  // BodyParts3D's external oblique reaches the midline over the rectus: it carries the same plan there (masked)
-#ifdef RECTUS_OVER
-  float m = abdoMask(vObj);
-#else
-  float m = 1.0;
-#endif
-  float ln, sh, h = rectusField(vObj, ln, sh);
-  float H = (h * 0.006 - (ln + 0.6 * sh) * 0.0016) * m;
-  normal = jPerturb( -vViewPosition, normal, vec2( dFdx(H), dFdy(H) ), faceDirection );
-  diffuseColor.rgb *= 1.0 - (0.22 * (1.0 - h) + 0.5 * sh) * m;
-  vec3 wc = vec3(0.50, 0.34, 0.32) * (0.93 + 0.12 * jNoise(vObj * 700.0));
-  diffuseColor.rgb = mix(diffuseColor.rgb, wc, ln * m * 0.8);
-  roughnessFactor = mix(roughnessFactor, 0.42, ln * m);
-#else
-  // skin / fat: only a faint echo of the relief underneath
   float ln, h = abdoField(vObj, ln);
+  // skin / fat: only a faint echo of the relief underneath
   float m = abdoMask(vObj);
   float H = (h - 0.3 * ln) * 0.006 * ABDO * m;
   normal = jPerturb( -vViewPosition, normal, vec2( dFdx(H), dFdy(H) ), faceDirection );
   diffuseColor.rgb *= 1.0 - 0.12 * ABDO * m * (1.0 - h);
-#endif
-}
-#endif
-#ifdef LINEA
-{
-  // the linea alba sheet bridges the gap between the recti: pale band of the right width, the rest takes the muscle's
-  // red so the two recti meet without a dark slit; soft shading at the band's edges
-  float dx = abs(vObj.x - LINEA), hw = lineaHW(vObj.y), aa = fwidth(vObj.x) + 0.0006;
-  float band = 1.0 - smoothstep(hw, hw + aa, dx);
-  float edge = (1.0 - smoothstep(hw, hw + 0.004, dx)) - band;
-  vec3 red = vec3(0.36, 0.035, 0.03) * (0.85 + 0.2 * jNoise(vObj * vec3(900.0, 60.0, 900.0)));
-  vec3 pale = vec3(0.50, 0.34, 0.32) * (0.93 + 0.12 * jNoise(vObj * 700.0));
-  diffuseColor.rgb = mix(red, pale, band) * (1.0 - 0.3 * edge);
-  roughnessFactor = mix(0.5, 0.42, band);
 }
 #endif
 #ifdef EYE
@@ -567,12 +501,6 @@ export function makeMaterial(s: Structure, eye?: EyeInfo): THREE.MeshPhysicalMat
   // rim strength per tissue (none on glassy or metal parts, or the eye)
   const rim = ({ skin: 0.32, bone: 0.42, tooth: 0.3, muscle: 0.3, organ: 0.22, vessel: 0.2, brain: 0.22, tissue: 0.28, fat: 0.25 } as Partial<Record<Kind, number>>)[kind]
   if (rim) defines.RIM = rim.toFixed(2)
-  if (kind === 'muscle' && /rectus abdominis/.test(s.en)) { defines.ABDO = '1.0'; defines.RECTUS = '' }
-  if (s.en === 'linea alba') {
-    defines.ABDO = '1.0'; defines.RECTUS = ''; defines.LINEA = s.c[0].toFixed(4)
-    Object.assign(m, { sheen: 0.15, sheenColor: new THREE.Color('#ff6a5a'), clearcoat: 0.3 }) // no white glaze on the red to either side
-  }
-  if (kind === 'muscle' && /external oblique$/.test(s.en)) { defines.ABDO = '1.0'; defines.RECTUS = ''; defines.RECTUS_OVER = '' }
   if (kind === 'skin') defines.ABDO = '1.4'
   if (kind === 'fat') defines.ABDO = '1.4'
   m.defines = { ...(m.defines || {}), ...defines }
@@ -594,7 +522,7 @@ export function makeMaterial(s: Structure, eye?: EyeInfo): THREE.MeshPhysicalMat
       .replace('#include <normal_fragment_maps>', FRAG_NORMAL)
       .replace('#include <dithering_fragment>', FRAG_END)
   }
-  const key = 'jasad-' + kind + (tex ? '-tex' + (tex.name === 'muscle' ? 'f' : '') : '') + ('RECTUS' in defines ? '-rectus' + ('RECTUS_OVER' in defines ? 'o' : 'LINEA' in defines ? 'l' : '') : '') + (NO_NORMALS ? '-nn' : '')
+  const key = 'jasad-' + kind + (tex ? '-tex' + (tex.name === 'muscle' ? 'f' : '') : '') + (NO_NORMALS ? '-nn' : '')
   m.customProgramCacheKey = () => key
   return m
 }
