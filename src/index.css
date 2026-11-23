@@ -201,3 +201,25 @@ canvas { touch-action: none; }
 .systems .setting { border-top: 1px solid var(--line); margin-top: 6px; padding-top: 8px; }
 .systems .setting label { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--muted); padding: 4px 8px; cursor: pointer; }
 .systems .setting input { accent-color: #d68bd9; width: 15px; height: 15px; }
+
+/* section 7: the body gets the stage — compact controls that step aside while orbiting */
+.ui .dock, .ui .tours, .ui .systems, .ui .dissect, .ui .search, .ui .src-link { transition: opacity 0.35s ease, transform 0.35s ease; }
+.ui.interacting .dock, .ui.interacting .tours, .ui.interacting .systems, .ui.interacting .dissect, .ui.interacting .search, .ui.interacting .src-link { opacity: 0.08; pointer-events: none; }
+.ui.interacting .dock { transform: translateY(12px); }
+.dock { gap: 6px; bottom: 14px; }
+.dock-row { padding: 4px; gap: 6px; }
+.seg button { padding: 6px 13px; font-size: 13px; }
+.life { padding: 6px 12px; font-size: 13px; }
+.layers { gap: 2px; }
+.layers button { padding: 5px 10px; font-size: 12.5px; }
+.tours { bottom: 112px; }
+.tour-btn { font-size: 13px; }
+@media (max-width: 820px) {
+  .dock { bottom: 8px; width: calc(100vw - 16px); }
+  .seg button { padding: 5px 9px; font-size: 12px; }
+  .life { padding: 5px 8px; font-size: 12px; }
+  .layers { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; max-width: calc(100vw - 32px); }
+  .layers::-webkit-scrollbar { display: none; }
+  .layers button { padding: 5px 9px; font-size: 12px; }
+  .dissect { bottom: 104px; }
+}

@@ -99,7 +99,7 @@ vec3 objectTangent = vec3( tangent.xyz );
 const FRAG_HEAD = /* glsl */ `
 uniform float uCap; uniform vec3 uCapColor; uniform float uTime;
 uniform vec3 uEyeA; uniform vec3 uEyeB; uniform float uEyeR;
-uniform float uGlow; uniform vec3 uGlowColor;
+uniform float uGlow; uniform vec3 uGlowColor; uniform float uCut;
 varying vec3 vObj; varying vec3 vFdir;
 vec3 jPerturb( vec3 surf_pos, vec3 surf_norm, vec2 dHdxy, float faceDir ) {
   vec3 vSigmaX = normalize( dFdx( surf_pos.xyz ) ); vec3 vSigmaY = normalize( dFdy( surf_pos.xyz ) );
@@ -140,6 +140,14 @@ float fiberLine(vec3 p, vec3 d){
 #endif
 `
 const FRAG_NORMAL = /* glsl */ `
+// layer transitions: the surface dissolves from head to feet behind a glowing edge
+float jEdge = 0.0;
+if (uCut > 0.001) {
+  float hh = clamp((0.9 - vObj.y) / 1.8, 0.0, 1.0) * 0.86 + (jNoise(vObj * 45.0) * 0.65 + jNoise(vObj * 140.0) * 0.35) * 0.14;
+  float th = uCut * 1.1 - 0.05;
+  if (hh < th) discard;
+  jEdge = 1.0 - smoothstep(0.0, 0.03, hh - th);
+}
 #include <normal_fragment_maps>
 #ifdef FIBER
 float fh = fiberH(vObj, normalize(vFdir + vec3(1e-4)));
@@ -252,6 +260,7 @@ if (uCap > 0.5 && !gl_FrontFacing) { gl_FragColor = vec4(uCapColor, 1.0); }
 if (any(isnan(gl_FragColor)) || any(isinf(gl_FragColor))) gl_FragColor = vec4(diffuseColor.rgb * 0.4, diffuseColor.a);
 // only intentional glow (emissive) may exceed the bloom threshold; lit highlights are capped below it
 { vec3 lit = max(gl_FragColor.rgb - totalEmissiveRadiance, vec3(0.0)); gl_FragColor.rgb = min(lit, vec3(1.6)) + min(totalEmissiveRadiance, vec3(8.0)); }
+gl_FragColor.rgb += vec3(1.0, 0.62, 0.32) * jEdge * 3.0;
 // selection: a soft luminous rim (Fresnel) rather than a flat flash
 if (uGlow > 0.001) { float rim = pow(1.0 - abs(dot(normalize(normal), normalize(vViewPosition))), 2.2);
   gl_FragColor.rgb += uGlowColor * (rim * 2.6 + 0.3) * uGlow; }
@@ -327,7 +336,7 @@ export function makeMaterial(s: Structure, eye?: EyeInfo): THREE.MeshPhysicalMat
   // deeper layers and thin sheets (tendons, aponeuroses, cartilage) yield to the surface in front of them
   const off = ({ skin: 0, superficial: 0, deep: 1, organs: 2, bones: 3 } as Record<string, number>)[s.layer] + (kind === 'tissue' ? 1.5 : 0)
   if (off > 0) Object.assign(m, { polygonOffset: true, polygonOffsetFactor: off * 0.5, polygonOffsetUnits: off * 2 })
-  const own = { uGlow: { value: 0 }, uGlowColor: { value: new THREE.Color('#ffd9a0') } }
+  const own = { uGlow: { value: 0 }, uGlowColor: { value: new THREE.Color('#ffd9a0') }, uCut: { value: 0 } }
   const capColor = color.clone().multiplyScalar(kind === 'bone' || kind === 'tooth' ? 0.92 : 0.78)
   m.userData = { baseColor: color.clone(), kind, baseOpacity: m.opacity, transparentBase: m.transparent, u: own }
   m.onBeforeCompile = (sh) => {

@@ -25,6 +25,7 @@ interface State {
   ready: boolean
   streaming: number // 0..1 background (muscles) load
   page: 'viewer' | 'sources'
+  interacting: boolean // the user is orbiting: controls step aside
   dimmed: string[] // translucent structures (card «تعتيم»)
   removed: string[] // finger dissection: structures peeled away, in order (undo pops)
   set: (p: Partial<State>) => void
@@ -73,6 +74,7 @@ export const useStore = create<State>((set) => ({
   page: typeof location !== 'undefined' && location.hash === '#sources' ? 'sources' : 'viewer',
   removed: [],
   dimmed: [],
+  interacting: false,
   ...initial,
   set: (p) => set(p),
   remove: (id) => set((s) => ({ removed: s.removed.includes(id) ? s.removed : [...s.removed, id], selected: s.selected === id ? null : s.selected, focused: s.selected === id ? false : s.focused, isolated: false })),

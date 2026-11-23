@@ -71,6 +71,8 @@ export default function Body() {
     // external genitalia morph away smoothly when the genital system is off
     SHARED.uGen.value += ((st.systems.genital ? 0 : 1) - SHARED.uGen.value) * (1 - Math.exp(-dt * 5))
     const k = 1 - Math.exp(-dt * 7)
+    // layer peel: a constant-speed sweep (≈1.1 s head → feet)
+    const fadeStep = dt * ((window as unknown as { __peel?: number }).__peel ?? 0.9)
     const explodeTarget = st.mode === 'explode' ? st.explode : 0
     explodeT.current += (explodeTarget - explodeT.current) * (1 - Math.exp(-dt * 4))
     const ex = explodeT.current
@@ -112,7 +114,7 @@ export default function Body() {
       if (st.tour === 'arm' && s.group !== 'skeleton' && !(s.group === 'muscles' && /arm|brachi|deltoid|biceps|triceps|anconeus|pectoralis major|carpi|pronator|supinator/.test(s.en))) target = Math.min(target, 0)
       p.ghost = ghost && !xray
       p.target = target
-      p.fade += (target - p.fade) * k
+      p.fade += Math.sign(target - p.fade) * Math.min(Math.abs(target - p.fade), fadeStep * (target < p.fade && target > 0 ? 3 : 1))
       const visible = p.fade > 0.01
       p.mesh.visible = visible
       if (!visible) continue
@@ -125,7 +127,8 @@ export default function Body() {
       else if (p.mesh.material !== m) p.mesh.material = m
 
       if (!useX) {
-        const op = p.fade * (dimmed?.has(p.id) ? 0.28 : 1)
+        const op = dimmed?.has(p.id) ? 0.28 : 1
+        ;(m.userData.u as { uCut: { value: number } }).uCut.value = 1 - p.fade
         const needT = op < 0.995
         if (m.transparent !== needT) { m.transparent = needT; m.needsUpdate = true }
         m.depthWrite = op > 0.6

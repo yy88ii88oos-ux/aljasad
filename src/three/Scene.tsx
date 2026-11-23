@@ -65,6 +65,15 @@ function Rig() {
   const ref = useRef<OrbitControlsImpl>(null)
   const { camera } = useThree()
   const focusTick = useStore((s) => s.focusTick)
+  useEffect(() => {
+    const c = ref.current
+    if (!c) return
+    let to = 0
+    const start = () => { clearTimeout(to); to = window.setTimeout(() => useStore.getState().set({ interacting: true }), 180) }
+    const end = () => { clearTimeout(to); to = window.setTimeout(() => useStore.getState().set({ interacting: false }), 1200) }
+    c.addEventListener('start', start); c.addEventListener('end', end)
+    return () => { c.removeEventListener('start', start); c.removeEventListener('end', end); clearTimeout(to) }
+  }, [])
   useEffect(() => { rig.controls = ref.current; rig.camera = camera as THREE.PerspectiveCamera; (window as unknown as Record<string, unknown>).__rig = rig }, [camera])
   // ?cam=px,py,pz,tx,ty,tz pins the camera (screenshots, shareable views)
   const ready = useStore((s) => s.ready)

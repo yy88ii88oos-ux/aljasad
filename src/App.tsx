@@ -63,12 +63,14 @@ function SearchBox() {
   )
 }
 
+// skin, muscles and bones are driven by the layer bar: listing them here too would duplicate it
+const LAYER_SYSTEMS = new Set(['integumentary', 'muscular', 'skeletal', 'genital'])
 function SystemsMenu() {
   const systems = useStore((s) => s.systems)
   const toggle = useStore((s) => s.toggleSystem)
   const set = useStore((s) => s.set)
   const [open, setOpen] = useState(!isMobile)
-  const only = (k: string) => set({ systems: Object.fromEntries(SYSTEMS.map((s) => [s.key, s.key === k])), depth: k === 'skeletal' ? 5 : k === 'muscular' ? 2 : k === 'integumentary' ? 0 : 4 })
+  const only = (k: string) => set({ systems: Object.fromEntries(SYSTEMS.map((s) => [s.key, s.key === k || (LAYER_SYSTEMS.has(s.key) && s.key !== 'genital' ? s.key === 'skeletal' : false)])), depth: 4 })
   return (
     <nav className={'systems glass' + (open ? ' open' : '')} aria-label="الأجهزة">
       <button className="systems-head" onClick={() => setOpen(!open)} aria-expanded={open}>
@@ -76,7 +78,7 @@ function SystemsMenu() {
       </button>
       {open && (
         <ul>
-          {SYSTEMS.filter((s) => s.key !== 'genital').map((s) => (
+          {SYSTEMS.filter((s) => !LAYER_SYSTEMS.has(s.key)).map((s) => (
             <li key={s.key} className={systems[s.key] ? 'on' : ''}>
               <button onClick={() => toggle(s.key)} style={{ ['--c' as string]: s.color }} aria-pressed={systems[s.key]}>
                 <i />{s.ar}
@@ -183,6 +185,7 @@ export default function App() {
   const page = useStore((s) => s.page)
   const ready = useStore((s) => s.ready)
   const streaming = useStore((s) => s.streaming)
+  const interacting = useStore((s) => s.interacting)
   const set = useStore((s) => s.set)
   useEffect(() => {
     const f = () => set({ page: location.hash === '#sources' ? 'sources' : 'viewer' })
@@ -192,7 +195,7 @@ export default function App() {
   return (
     <>
       <Scene />
-      <div className={'ui' + (ready ? ' ready' : '')}>
+      <div className={'ui' + (ready ? ' ready' : '') + (interacting ? ' interacting' : '')}>
         <header className="top">
           <button className="brand" onClick={() => { set({ selected: null, isolated: false, tour: null }); flyHome() }} aria-label="الجسد — العودة للعرض الكامل">
             <svg viewBox="0 0 64 64" aria-hidden><path d="M32 52S10 39 10 24a11 11 0 0 1 22-3 11 11 0 0 1 22 3c0 15-22 28-22 28z" /><path className="ln" d="M12 32h12l4-8 5 16 4-8h15" /></svg>
