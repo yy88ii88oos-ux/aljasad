@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Canvas, useFrame, useThree } from '@react-three/fiber'
 import { Environment, Lightformer, OrbitControls, PerformanceMonitor } from '@react-three/drei'
-import { EffectComposer, Bloom, SSAO, DepthOfField, Vignette, ToneMapping, SMAA } from '@react-three/postprocessing'
-import { BlendFunction, ToneMappingMode, SMAAPreset, type DepthOfFieldEffect } from 'postprocessing'
+import { EffectComposer, Bloom, N8AO, DepthOfField, Vignette, ToneMapping, SMAA } from '@react-three/postprocessing'
+import { ToneMappingMode, SMAAPreset, type DepthOfFieldEffect } from 'postprocessing'
 import * as THREE from 'three'
 import gsap from 'gsap'
 
@@ -12,8 +12,8 @@ import type { OrbitControls as OrbitControlsImpl } from 'three-stdlib'
 import Body from './Body'
 import Life from './Life'
 import Tours from './Tours'
-import { parts } from './registry'
-import { STRUCTURES, isMobile } from '../data'
+import { parts, upgradeGroup } from './registry'
+import { STRUCTURES, isMobile, lightModels, type Group } from '../data'
 import { useStore } from '../store'
 
 export const HOME = isMobile
@@ -94,6 +94,14 @@ function Rig() {
       const d = cam.position.distanceTo(ref.current.target)
       const near = THREE.MathUtils.clamp(d * 0.035, 0.002, 0.06)
       if (Math.abs(near - cam.near) / cam.near > 0.08) { cam.near = near; cam.far = 60; cam.updateProjectionMatrix() }
+      // close-up on a phone: swap in the full-resolution meshes of whatever is being looked at
+      if (lightModels && d < 0.9 && useStore.getState().streaming >= 1) {
+        const st = useStore.getState()
+        const sel = st.selected ? STRUCTURES[st.selected]?.group : undefined
+        const byDepth: Group[][] = [['skin', 'muscles'], ['muscles'], ['muscles', 'skeleton'], ['organs', 'cardio', 'nervous'], ['skeleton']]
+        const want: Group[] = sel ? [sel] : st.mode === 'xray' ? ['organs', 'cardio'] : byDepth[st.depth] || []
+        for (const g of want) void upgradeGroup(g)
+      }
     }
     const st = useStore.getState()
     const want = st.selected && st.focused ? 1 : 0
@@ -114,7 +122,7 @@ function Backdrop() {
     vertexShader: 'varying vec3 vP; void main(){ vP = normalize(position); gl_Position = projectionMatrix*modelViewMatrix*vec4(position,1.0); }',
     fragmentShader: /* glsl */ `varying vec3 vP; uniform float uTime;
       void main(){ float h = vP.y*0.5+0.5;
-        vec3 top = vec3(0.035,0.05,0.085), mid = vec3(0.02,0.028,0.05), bot = vec3(0.008,0.01,0.018);
+        vec3 top = vec3(0.05,0.075,0.15), mid = vec3(0.028,0.042,0.09), bot = vec3(0.01,0.015,0.032);
         vec3 c = mix(bot, mid, smoothstep(0.0,0.5,h)); c = mix(c, top, smoothstep(0.5,1.0,h));
         float glow = pow(max(0.0, 1.0 - length(vP.xy - vec2(0.0,0.1))), 3.0); c += vec3(0.05,0.03,0.05)*glow*0.6;
         gl_FragColor = vec4(c,1.0); }`,
@@ -146,6 +154,24 @@ function Backdrop() {
       <primitive object={motes} />
     </>
   )
+}
+
+// soft contact shadow under the feet (a blurred ellipse: no extra scene render)
+const FLOOR_Y = Math.min(...Object.values(STRUCTURES).map((s) => s.min[1])) - 0.004
+function FloorShadow() {
+  const mat = useMemo(() => new THREE.ShaderMaterial({
+    transparent: true, depthWrite: false, uniforms: { uOp: { value: 0 } },
+    vertexShader: 'varying vec2 vU; void main(){ vU = uv*2.0-1.0; gl_Position = projectionMatrix*modelViewMatrix*vec4(position,1.0); }',
+    fragmentShader: `varying vec2 vU; uniform float uOp;
+      void main(){ vec2 f = vec2(abs(vU.x) - 0.32, vU.y) * vec2(1.0, 1.0); float core = exp(-dot(f,f)*7.0);
+        float wide = exp(-dot(vU,vU)*2.2); gl_FragColor = vec4(0.0,0.0,0.02, (core*0.55 + wide*0.35) * uOp); }`,
+  }), [])
+  useFrame(() => {
+    const st = useStore.getState()
+    const want = st.mode === 'layers' || st.mode === 'xray' ? (st.ready ? 1 : 0) : 0
+    mat.uniforms.uOp.value += (want - mat.uniforms.uOp.value) * 0.06
+  })
+  return <mesh material={mat} position={[0, FLOOR_Y, -0.02]} rotation-x={-Math.PI / 2} renderOrder={-5}><planeGeometry args={[0.7, 0.5]} /></mesh>
 }
 
 function Lights() {
@@ -181,6 +207,7 @@ function Effects({ lite }: { lite: boolean }) {
   if (isMobile || lite) {
     return (
       <EffectComposer multisampling={4}>
+        {!lite && !/noao/.test(location.search) ? <N8AO halfRes quality="performance" aoRadius={0.05} distanceFalloff={0.6} intensity={2.2} /> : <></>}
         <Bloom mipmapBlur luminanceThreshold={2.2} intensity={0.7} radius={0.6} />
         <Vignette offset={0.25} darkness={0.75} />
         <ToneMapping mode={ToneMappingMode.ACES_FILMIC} />
@@ -189,8 +216,8 @@ function Effects({ lite }: { lite: boolean }) {
     )
   }
   return (
-    <EffectComposer multisampling={4} enableNormalPass>
-      {!/noao/.test(location.search) ? <SSAO blendFunction={BlendFunction.MULTIPLY} samples={16} rings={4} radius={0.06} intensity={18} luminanceInfluence={0.5} worldDistanceThreshold={1} worldDistanceFalloff={0.3} worldProximityThreshold={0.4} worldProximityFalloff={0.2} /> : <></>}
+    <EffectComposer multisampling={4}>
+      {!/noao/.test(location.search) ? <N8AO quality="medium" aoRadius={0.06} distanceFalloff={0.6} intensity={2.6} /> : <></>}
       {!/nodof/.test(location.search) ? <DepthOfField ref={dofRef} focusRange={0.05} bokehScale={0} /> : <></>}
       <Bloom mipmapBlur luminanceThreshold={2.2} intensity={0.7} radius={0.6} />
       <Vignette offset={0.25} darkness={0.75} />
@@ -216,6 +243,7 @@ export default function Scene() {
     >
       <Backdrop />
       <Lights />
+      <FloorShadow />
       <Body />
       {ready && <Life />}
       {ready && <Tours />}

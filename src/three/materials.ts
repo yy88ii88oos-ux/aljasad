@@ -87,6 +87,7 @@ vec3 objectTangent = vec3( tangent.xyz );
 `
 const FRAG_HEAD = /* glsl */ `
 uniform float uCap; uniform vec3 uCapColor; uniform float uTime;
+uniform vec3 uEyeA; uniform vec3 uEyeB; uniform float uEyeR;
 varying vec3 vObj; varying vec3 vFdir;
 vec3 jPerturb( vec3 surf_pos, vec3 surf_norm, vec2 dHdxy, float faceDir ) {
   vec3 vSigmaX = normalize( dFdx( surf_pos.xyz ) ); vec3 vSigmaY = normalize( dFdy( surf_pos.xyz ) );
@@ -139,6 +140,49 @@ float on = jNoise(vObj * 220.0) * 0.6 + jNoise(vObj * 600.0) * 0.4;
 normal = jPerturb( -vViewPosition, normal, vec2( dFdx(on), dFdy(on) ) * 0.35, faceDirection );
 diffuseColor.rgb *= 0.9 + 0.2 * on;
 #endif
+#ifdef FIBER
+// fibre-aligned roughness: sheen runs along the fascicles
+roughnessFactor = clamp(roughnessFactor * (0.78 + 0.45 * fh), 0.18, 1.0);
+#endif
+#ifdef BONE
+{
+  // fine cortical porosity: tiny pits that fade out before they can alias
+  float fq = fwidth(vObj.x * 1500.0) + fwidth(vObj.y * 1500.0);
+  float pit = smoothstep(0.66, 0.8, jNoise(vObj * 1500.0)) * (1.0 - smoothstep(0.4, 0.9, fq));
+  float grain = jNoise(vObj * 480.0);
+  diffuseColor.rgb *= 1.0 - 0.22 * pit - 0.06 * grain;
+  normal = jPerturb( -vViewPosition, normal, vec2( dFdx(-pit), dFdy(-pit) ) * 0.25, faceDirection );
+  roughnessFactor = clamp(roughnessFactor + 0.2 * pit, 0.0, 1.0);
+}
+#endif
+#ifdef EYE
+{
+  // procedural eye: sclera, iris with radial stroma, limbal ring, pupil — under a glossy cornea (clearcoat)
+  vec3 ec = vObj.x < 0.0 ? uEyeA : uEyeB;
+  vec3 q = normalize(vObj - ec);
+  vec3 gaze = vec3(0.0, 0.0, 1.0);
+  float th = acos(clamp(dot(q, gaze), -1.0, 1.0));
+  vec3 side = q - gaze * dot(q, gaze);
+  float phi = atan(side.y, side.x);
+  float IR = 0.5, PR = 0.17; // angular radii: iris ≈ 6 mm, pupil ≈ 2 mm on a 12 mm globe
+  float aa = fwidth(th) * 1.5;
+  float irisM = 1.0 - smoothstep(IR - aa, IR + aa, th);
+  float pupilM = 1.0 - smoothstep(PR - aa, PR + aa, th);
+  float rr = th / IR;
+  float streak = jNoise(vec3(cos(phi) * 9.0, sin(phi) * 9.0, rr * 2.5)) * 0.55 + jNoise(vec3(cos(phi) * 30.0, sin(phi) * 30.0, rr * 6.0)) * 0.45;
+  vec3 iris = mix(vec3(0.16, 0.085, 0.035), vec3(0.50, 0.32, 0.13), streak);
+  iris = mix(iris, vec3(0.62, 0.45, 0.17), (1.0 - smoothstep(0.32, 0.5, rr)) * 0.55);  // golden collarette
+  iris *= mix(1.0, 0.35, smoothstep(0.82, 1.0, rr));                                    // dark limbal ring
+  vec3 sclera = vec3(0.94, 0.92, 0.88);
+  sclera = mix(sclera, vec3(0.86, 0.62, 0.58), smoothstep(0.9, 1.9, th) * 0.45);        // warmer toward the back
+  float vessel = smoothstep(0.72, 0.78, jNoise(vec3(phi * 6.0, th * 14.0, 3.0))) * smoothstep(0.7, 1.4, th);
+  sclera = mix(sclera, vec3(0.75, 0.25, 0.25), vessel * 0.35);
+  vec3 col = mix(sclera, iris, irisM);
+  col = mix(col, vec3(0.008), pupilM);
+  diffuseColor.rgb = col;
+  roughnessFactor = mix(0.35, 0.2, irisM);
+}
+#endif
 `
 const FRAG_END = /* glsl */ `
 #ifdef GLASS
@@ -148,6 +192,10 @@ const FRAG_END = /* glsl */ `
   gl_FragColor.rgb += fr * vec3(0.35, 0.42, 0.5) * 0.6;
 }
 #endif
+#ifdef SSS
+{ float g = 1.0 - abs(dot(normalize(normal), normalize(vViewPosition)));
+  gl_FragColor.rgb += diffuseColor.rgb * vec3(1.0, 0.55, 0.45) * pow(g, 2.0) * SSS; }
+#endif
 if (uCap > 0.5 && !gl_FrontFacing) { gl_FragColor = vec4(uCapColor, 1.0); }
 // guard the half-float HDR buffer: NaN/Inf from razor-sharp clearcoat lobes would smear through bloom
 if (any(isnan(gl_FragColor)) || any(isinf(gl_FragColor))) gl_FragColor = vec4(diffuseColor.rgb * 0.4, diffuseColor.a);
@@ -156,10 +204,10 @@ if (any(isnan(gl_FragColor)) || any(isinf(gl_FragColor))) gl_FragColor = vec4(di
 #include <dithering_fragment>
 `
 
-export type Kind = 'bone' | 'muscle' | 'organ' | 'vessel' | 'brain' | 'skin' | 'tooth' | 'tissue'
+export type Kind = 'bone' | 'muscle' | 'organ' | 'vessel' | 'brain' | 'skin' | 'tooth' | 'tissue' | 'eye'
 export function kindOf(s: Structure): Kind {
   if (s.group === 'skin') return 'skin'
-  if (s.en === 'eyeball') return 'organ'
+  if (s.en === 'eyeball') return 'eye'
   if (s.group === 'skeleton') return /tooth/.test(s.en) ? 'tooth' : /cartilage|disk|disc|menisc/.test(s.en) || TENDON.test(s.en) ? 'tissue' : 'bone'
   if (s.group === 'muscles') return TENDON.test(s.en) && !/tensor fasciae/.test(s.en) ? 'tissue' : 'muscle'
   if (s.group === 'cardio') return /wall of heart|papillary|valve/.test(s.en) ? 'organ' : 'vessel'
@@ -167,7 +215,8 @@ export function kindOf(s: Structure): Kind {
   return 'organ'
 }
 
-export function makeMaterial(s: Structure): THREE.MeshPhysicalMaterial {
+export interface EyeInfo { a: THREE.Vector3; b: THREE.Vector3; r: number }
+export function makeMaterial(s: Structure, eye?: EyeInfo): THREE.MeshPhysicalMaterial {
   const kind = kindOf(s)
   const color = new THREE.Color(baseColor(s))
   const m = new THREE.MeshPhysicalMaterial({ color, side: THREE.DoubleSide, clippingPlanes: [CLIP_PLANE] })
@@ -175,7 +224,11 @@ export function makeMaterial(s: Structure): THREE.MeshPhysicalMaterial {
   switch (kind) {
     case 'bone':
       Object.assign(m, { roughness: 0.62, metalness: 0, clearcoat: 0.25, clearcoatRoughness: 0.5, sheen: 0.4, sheenColor: new THREE.Color('#fff4dc'), sheenRoughness: 0.6 })
-      defines.ORGANIC = ''
+      defines.BONE = ''
+      break
+    case 'eye':
+      Object.assign(m, { roughness: 0.3, clearcoat: 1, clearcoatRoughness: 0.03, sheen: 0 })
+      defines.EYE = ''
       break
     case 'tooth':
       Object.assign(m, { roughness: 0.3, clearcoat: 0.8, clearcoatRoughness: 0.2 })
@@ -186,10 +239,12 @@ export function makeMaterial(s: Structure): THREE.MeshPhysicalMaterial {
     case 'muscle':
       Object.assign(m, { roughness: 0.48, clearcoat: 0.45, clearcoatRoughness: 0.3, sheen: 0.5, sheenColor: new THREE.Color('#ff6a5a'), sheenRoughness: 0.4 })
       defines.FIBER = ''
+      defines.SSS = '0.18'
       break
     case 'organ':
       Object.assign(m, { roughness: 0.36, clearcoat: 0.9, clearcoatRoughness: 0.18, sheen: 0.3, sheenColor: new THREE.Color('#ffd0c0') })
       defines.ORGANIC = ''
+      defines.SSS = '0.25'
       break
     case 'vessel':
       Object.assign(m, { roughness: 0.34, clearcoat: 0.9, clearcoatRoughness: 0.18 })
@@ -201,6 +256,7 @@ export function makeMaterial(s: Structure): THREE.MeshPhysicalMaterial {
     case 'skin':
       Object.assign(m, { roughness: 0.55, clearcoat: 0.25, clearcoatRoughness: 0.45, side: THREE.FrontSide, sheen: 0.8, sheenColor: new THREE.Color('#ff9f86'), sheenRoughness: 0.5 })
       defines.SKINPUSH = ''
+      defines.SSS = '0.3'
       break
   }
   m.defines = { ...(m.defines || {}), ...defines }
@@ -210,7 +266,8 @@ export function makeMaterial(s: Structure): THREE.MeshPhysicalMaterial {
   const capColor = color.clone().multiplyScalar(kind === 'bone' || kind === 'tooth' ? 0.92 : 0.78)
   m.userData = { baseColor: color.clone(), kind, baseOpacity: m.opacity, transparentBase: m.transparent }
   m.onBeforeCompile = (sh) => {
-    Object.assign(sh.uniforms, SHARED, { uCapColor: { value: capColor }, uPush: { value: kind === 'skin' ? 0.0018 : 0 } })
+    Object.assign(sh.uniforms, SHARED, { uCapColor: { value: capColor }, uPush: { value: kind === 'skin' ? 0.0018 : 0 },
+      uEyeA: { value: eye?.a ?? new THREE.Vector3() }, uEyeB: { value: eye?.b ?? new THREE.Vector3() }, uEyeR: { value: eye?.r ?? 0.012 } })
     sh.vertexShader = VERT_HEAD + sh.vertexShader
       .replace('#include <begin_vertex>', VERT_BEGIN)
       .replace('#include <beginnormal_vertex>', NORMAL_BEGIN)

@@ -3,7 +3,7 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js'
 import { computeBoundsTree, acceleratedRaycast } from 'three-mesh-bvh'
 import { STRUCTURES, lightModels, type Group, type Structure } from '../data'
-import { makeMaterial, makeXray } from './materials'
+import { makeMaterial, makeXray, type EyeInfo } from './materials'
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 ;(THREE.BufferGeometry.prototype as any).computeBoundsTree = computeBoundsTree
@@ -80,20 +80,13 @@ function dequantize(mesh: THREE.Mesh) {
   return g
 }
 
-function register(scene: THREE.Object3D) {
-  const heartPivot = new THREE.Vector3()
-  const hs = STRUCTURES['FMA7274']
-  if (hs) heartPivot.set(...hs.c)
-  scene.traverse((o) => {
-    const mesh = o as THREE.Mesh
-    if (!mesh.isMesh) return
-    const id = mesh.name.replace(/_\d+$/, '') || mesh.parent?.name || ''
-    const s = STRUCTURES[id]
-    if (!s) return
+// float positions + per-vertex attributes the shaders need (fibre direction, elbow weights)
+function prepare(mesh: THREE.Mesh, s: Structure) {
     const geo = dequantize(mesh)
     const n = geo.attributes.position.count
     if (s.group === 'muscles') {
-      const d = fiberDir(geo)
+      // broad sheets whose longest extent is across their fibres: use the known anatomical direction
+      const d = /frontalis|occipitalis|temporoparietalis|platysma/.test(s.en) ? new THREE.Vector3(0, 1, 0.15).normalize() : fiberDir(geo)
       const arr = new Float32Array(n * 3)
       for (let i = 0; i < n; i++) arr.set([d.x, d.y, d.z], i * 3)
       geo.setAttribute('fdir', new THREE.BufferAttribute(arr, 3))
@@ -104,8 +97,32 @@ function register(scene: THREE.Object3D) {
       for (let i = 0; i < n; i++) { arr[i * 2] = 1; arr[i * 2 + 1] = bulge }
       geo.setAttribute('armw', new THREE.BufferAttribute(arr, 2))
     }
+  return geo
+}
+
+// the BodyParts3D eyeball holds both globes: split by side and fit each centre
+function eyeInfo(geo: THREE.BufferGeometry): EyeInfo {
+  const P = geo.attributes.position as THREE.BufferAttribute
+  const A = new THREE.Box3(), B = new THREE.Box3(), v = new THREE.Vector3()
+  for (let i = 0; i < P.count; i++) { v.fromBufferAttribute(P, i); (v.x < 0 ? A : B).expandByPoint(v) }
+  const a = A.getCenter(new THREE.Vector3()), b = B.getCenter(new THREE.Vector3())
+  const size = A.getSize(new THREE.Vector3())
+  return { a, b, r: Math.max(size.x, size.y, size.z) / 2 }
+}
+
+function register(scene: THREE.Object3D) {
+  const heartPivot = new THREE.Vector3()
+  const hs = STRUCTURES['FMA7274']
+  if (hs) heartPivot.set(...hs.c)
+  scene.traverse((o) => {
+    const mesh = o as THREE.Mesh
+    if (!mesh.isMesh) return
+    const id = mesh.name.replace(/_\d+$/, '') || mesh.parent?.name || ''
+    const s = STRUCTURES[id]
+    if (!s) return
+    const geo = prepare(mesh, s)
     geo.computeBoundingSphere()
-    const mat = makeMaterial(s)
+    const mat = makeMaterial(s, s.en === 'eyeball' ? eyeInfo(geo) : undefined)
     mesh.material = mat
     mesh.userData.id = id
     mesh.matrixAutoUpdate = true
@@ -192,6 +209,43 @@ async function loadGroupsOnce(groups: Group[], onProgress: (f: number) => void, 
     onGroup?.(g)
   }))
   computeExplode()
+}
+
+// ---- zoom LOD: phones start with the light files; the full-resolution group is swapped in when the camera comes close ----
+const upgraded = new Set<Group>()
+export const upgrading = { group: null as Group | null }
+export async function upgradeGroup(g: Group) {
+  if (!lightModels || upgraded.has(g) || upgrading.group) return
+  upgraded.add(g); upgrading.group = g
+  try {
+    const b64 = import.meta.env.VITE_MODELS_B64 === '1'
+    let buf = await fetchWithProgress(BASE + g + '.glb' + (b64 ? '.txt' : ''), () => {})
+    if (b64) buf = Uint8Array.from(atob(new TextDecoder().decode(buf)), (c) => c.charCodeAt(0)).buffer
+    const gltf = await loader.parseAsync(buf, BASE)
+    const meshes: THREE.Mesh[] = []
+    gltf.scene.traverse((o) => { if ((o as THREE.Mesh).isMesh) meshes.push(o as THREE.Mesh) })
+    // swap a few meshes per frame so the view never stalls
+    await new Promise<void>((done) => {
+      const step = () => {
+        const t0 = performance.now()
+        while (meshes.length && performance.now() - t0 < 6) {
+          const m = meshes.pop()!
+          const id = m.name.replace(/_\d+$/, '') || m.parent?.name || ''
+          const p = parts.get(id)
+          if (!p) continue
+          const geo = prepare(m, p.s)
+          geo.computeBoundingSphere()
+          const old = p.mesh.geometry
+          p.mesh.geometry = geo
+          old.dispose()
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          ;(geo as any).computeBoundsTree?.()
+        }
+        if (meshes.length) requestAnimationFrame(step); else done()
+      }
+      step()
+    })
+  } finally { upgrading.group = null }
 }
 
 // build BVH lazily in idle time so picking stays fast
