@@ -11,44 +11,48 @@ export const SHARED = {
 }
 export const CLIP_PLANE = new THREE.Plane(new THREE.Vector3(-1, 0, 0), 1000)
 
-// ---------------- colour palette (real tissue tones) ----------------
+// ---------------- colour palette (medical-atlas convention, high contrast) ----------------
+export const PALETTE = {
+  muscle: '#B8322E', tendon: '#F6F3EC', bone: '#E8DCC4', tooth: '#F7F3EA', cartilage: '#8FC8E0',
+  artery: '#D42A2A', vein: '#2E5BD8', nerve: '#F2CF3A', lymph: '#3FB86B', skin: '#C98D74',
+}
 const ORGAN_COLORS: [RegExp, string][] = [
-  [/liver/, '#7a2219'], [/gallbladder/, '#4d6b2a'], [/stomach/, '#c9776a'], [/esophagus/, '#c4776c'],
-  [/duodenum|jejunum|ileum/, '#d9978a'], [/colon|appendix|rectum|taenia/, '#c88a76'], [/pancrea/, '#e2b27c'],
-  [/spleen/, '#5c1a2b'], [/kidney/, '#7b2a22'], [/ureter|urethra/, '#d8b28a'], [/bladder/, '#d2a77e'],
-  [/lung/, '#e09a98'], [/trachea|bronch|thyroid cartilage/, '#e6cbb8'], [/thymus/, '#e1b893'], [/adrenal/, '#d9a03c'],
-  [/pituitary|pineal/, '#d88f7f'], [/eyeball/, '#f2efe8'], [/ear$/, '#e3a98f'], [/testis|epididymis|deferent|seminal|prostate|penis|glans|corpus/, '#c98a8a'],
-  [/gingiva|labial/, '#d4776f'], [/diaphragm/, '#9a2a26'],
+  [/liver/, '#5A1C14'], [/gallbladder|cystic duct|bile duct/, '#3E7A2C'], [/stomach/, '#D9786E'], [/esophagus/, '#D47B72'],
+  [/duodenum|jejunum|ileum/, '#EE8C98'], [/colon|appendix|rectum|taenia|cecum|caecum/, '#E58A8C'], [/pancrea/, '#E9B470'],
+  [/spleen/, '#5B2470'], [/kidney/, '#6B2119'], [/ureter|urethra/, '#E3C07A'], [/bladder/, '#E2B07A'],
+  [/lung/, '#EE9FB0'], [/trachea|bronch|thyroid cartilage|cricoid|nasal cartilage/, PALETTE.cartilage], [/thymus/, '#9ED08A'], [/adrenal/, '#E2A23A'],
+  [/thyroid gland/, '#9C2A3A'], [/pituitary|pineal/, '#D88F7F'], [/eyeball/, '#F4F1EA'], [/ear$/, '#E3A98F'],
+  [/testis|epididymis|deferent|seminal|prostate|penis|glans|corpus/, '#D58E94'], [/gingiva|labial/, '#E07A80'],
+  [/diaphragm/, PALETTE.muscle], [/lymph/, PALETTE.lymph],
 ]
 const VEIN = /vein|vena|sinus/
+export const TENDON = /tendon|aponeurosis|linea alba|retinaculum|fascia lata|iliotibial|ligament|tract|membrane|tendinous|galea/
 function baseColor(s: Structure): string {
   const n = s.en
-  if (s.group === 'skin') return '#c98d74'
+  if (s.group === 'skin') return PALETTE.skin
+  if (n === 'eyeball') return '#F4F1EA'
   if (s.group === 'skeleton') {
-    if (/tooth/.test(n)) return '#f4efe2'
-    if (/cartilage|disk/.test(n)) return '#cfe0dc'
-    if (/ligament|tract|membrane|retinaculum|linea alba|tendon|tendinous/.test(n)) return '#d9d2c0'
-    return '#e8dcc2'
+    if (/tooth/.test(n)) return PALETTE.tooth
+    if (/cartilage|disk|disc|menisc|labrum/.test(n)) return PALETTE.cartilage
+    if (TENDON.test(n)) return PALETTE.tendon
+    return PALETTE.bone
   }
-  if (s.group === 'muscles') {
-    if (/tendon|aponeurosis|linea|retinaculum/.test(n)) return '#ddd3c0'
-    return '#9b1f22'
-  }
+  if (s.group === 'muscles') return TENDON.test(n) && !/tensor fasciae/.test(n) ? PALETTE.tendon : PALETTE.muscle
   if (s.group === 'cardio') {
-    if (/pulmonary artery/.test(n)) return '#3550c8'
-    if (/pulmonary vein/.test(n)) return '#c4121f'
-    if (/wall of heart|papillary|valve/.test(n)) return '#8f1d1f'
-    return VEIN.test(n) ? '#2a45b8' : '#c4121f'
+    if (/pulmonary artery|pulmonary trunk/.test(n)) return PALETTE.vein // deoxygenated: atlas blue
+    if (/pulmonary vein/.test(n)) return PALETTE.artery
+    if (/wall of heart|papillary|valve/.test(n)) return '#9E1E22'
+    return VEIN.test(n) ? PALETTE.vein : PALETTE.artery
   }
   if (s.group === 'nervous') {
-    if (/optic nerve|optic tract|chiasm/.test(n)) return '#f0d78c'
-    if (/ventricle|aqueduct|canal|foramen/.test(n)) return '#7fc6ff'
-    if (/choroid/.test(n)) return '#c45a6a'
-    if (/white matter|callosum|capsule|fornix|commissure/.test(n)) return '#f1e6dc'
-    return '#e1b0a6'
+    if (/nerve|optic tract|chiasm|cord|root|ganglion/.test(n)) return PALETTE.nerve
+    if (/ventricle|aqueduct|canal|foramen/.test(n)) return '#6FC0F5'
+    if (/choroid/.test(n)) return '#C45A6A'
+    if (/white matter|callosum|capsule|fornix|commissure/.test(n)) return '#F3EAE0'
+    return '#E6B5AA'
   }
   for (const [re, c] of ORGAN_COLORS) if (re.test(n)) return c
-  return '#d49a8a'
+  return '#D9958A'
 }
 
 // ---------------- shader patches ----------------
@@ -108,6 +112,18 @@ float fiberH(vec3 p, vec3 d){
   float bundle = sin(u * 420.0 + w * 0.5) * (1.0 - smoothstep(0.6, 2.2, fwb));
   return 0.55 + 0.3 * s * (0.6 + 0.4 * jNoise(p * 300.0 + d * 40.0)) + 0.15 * bundle;
 }
+// thin pale lines between fascicles (perimysium), ~1.6 mm apart, anti-aliased and broken along the fibre
+float fiberLine(vec3 p, vec3 d){
+  vec3 a = normalize(abs(d.y) < 0.9 ? cross(d, vec3(0,1,0)) : cross(d, vec3(1,0,0)));
+  vec3 b = cross(d, a);
+  float u = (dot(p, a) * 0.8 + dot(p, b) * 0.6) * 520.0 + jNoise(p * 25.0) * 0.8;
+  float f = abs(fract(u) - 0.5) * 2.0;           // 0 at the line centre
+  float w = fwidth(u) * 1.5 + 0.05;
+  float line = 1.0 - smoothstep(0.0, w + 0.06, f);
+  float fade = 1.0 - smoothstep(0.07, 0.16, fwidth(u));    // only once each gap is > ~8 px: no pinstripe moiré
+  float broken = smoothstep(0.45, 0.75, jNoise(p * 70.0 + d * 180.0));
+  return line * fade * broken;
+}
 #endif
 `
 const FRAG_NORMAL = /* glsl */ `
@@ -115,7 +131,8 @@ const FRAG_NORMAL = /* glsl */ `
 #ifdef FIBER
 float fh = fiberH(vObj, normalize(vFdir + vec3(1e-4)));
 normal = jPerturb( -vViewPosition, normal, vec2( dFdx(fh), dFdy(fh) ) * 0.35, faceDirection );
-diffuseColor.rgb *= 0.82 + 0.26 * fh;
+diffuseColor.rgb *= 0.86 + 0.22 * fh;
+diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.93, 0.86, 0.82), fiberLine(vObj, normalize(vFdir + vec3(1e-4))) * 0.4);
 #endif
 #ifdef ORGANIC
 float on = jNoise(vObj * 220.0) * 0.6 + jNoise(vObj * 600.0) * 0.4;
@@ -142,8 +159,9 @@ if (any(isnan(gl_FragColor)) || any(isinf(gl_FragColor))) gl_FragColor = vec4(di
 export type Kind = 'bone' | 'muscle' | 'organ' | 'vessel' | 'brain' | 'skin' | 'tooth' | 'tissue'
 export function kindOf(s: Structure): Kind {
   if (s.group === 'skin') return 'skin'
-  if (s.group === 'skeleton') return /tooth/.test(s.en) ? 'tooth' : /cartilage|disk|ligament|tract|membrane|retinaculum|linea|tendon/.test(s.en) ? 'tissue' : 'bone'
-  if (s.group === 'muscles') return /tendon|aponeurosis|linea|retinaculum/.test(s.en) ? 'tissue' : 'muscle'
+  if (s.en === 'eyeball') return 'organ'
+  if (s.group === 'skeleton') return /tooth/.test(s.en) ? 'tooth' : /cartilage|disk|disc|menisc/.test(s.en) || TENDON.test(s.en) ? 'tissue' : 'bone'
+  if (s.group === 'muscles') return TENDON.test(s.en) && !/tensor fasciae/.test(s.en) ? 'tissue' : 'muscle'
   if (s.group === 'cardio') return /wall of heart|papillary|valve/.test(s.en) ? 'organ' : 'vessel'
   if (s.group === 'nervous') return 'brain'
   return 'organ'

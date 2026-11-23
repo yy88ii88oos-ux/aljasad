@@ -161,7 +161,19 @@ const EST: Record<Group, number> = lightModels
   ? { skeleton: 1.4e6, skin: 0.3e6, organs: 0.6e6, cardio: 0.5e6, nervous: 0.5e6, muscles: 2.4e6 }
   : { skeleton: 3.9e6, skin: 1.0e6, organs: 1.8e6, cardio: 1.2e6, nervous: 1.5e6, muscles: 6.7e6 }
 
-export async function loadGroups(groups: Group[], onProgress: (f: number) => void, onGroup?: (g: Group) => void) {
+// one fetch + parse per group, however many times loading is requested (React StrictMode runs effects twice)
+const inflight = new Map<Group, { p: Promise<void>; subs: Set<(f: number) => void> }>()
+export function loadGroups(groups: Group[], onProgress: (f: number) => void, onGroup?: (g: Group) => void) {
+  const todo = groups.filter((g) => !inflight.has(g))
+  if (todo.length) {
+    const subs = new Set<(f: number) => void>()
+    const p = loadGroupsOnce(todo, (f) => subs.forEach((fn) => fn(f)), onGroup)
+    for (const g of todo) inflight.set(g, { p, subs })
+  }
+  for (const g of groups) inflight.get(g)!.subs.add(onProgress)
+  return Promise.all(groups.map((g) => inflight.get(g)!.p)).then(() => onProgress(1))
+}
+async function loadGroupsOnce(groups: Group[], onProgress: (f: number) => void, onGroup?: (g: Group) => void) {
   const loaded: Record<string, number> = {}
   const totals: Record<string, number> = { ...EST }
   const report = () => {

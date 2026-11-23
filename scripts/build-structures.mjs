@@ -87,6 +87,8 @@ for (const id of ids) {
     c: g.centroid, min: g.min, max: g.max,
   };
 }
+// the eyeball ships inside the skeleton file of BodyParts3D but is a sense organ
+for (const s of Object.values(out)) if (s.en === 'eyeball') { s.system = 'sense'; s.layer = 'organs' }
 fs.writeFileSync(path.join(ROOT, 'data/structures.json'), JSON.stringify(out, null, 0));
 console.log('structures', ids.length, 'missing arabic:', missing.length);
 if (missing.length) console.log(missing.join('\n'));

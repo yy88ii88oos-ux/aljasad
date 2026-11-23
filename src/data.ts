@@ -13,16 +13,16 @@ export const FLOW = flowJson as unknown as Record<string, { length: number; poin
 export interface SystemMeta { key: string; ar: string; color: string }
 export const SYSTEMS: SystemMeta[] = [
   { key: 'integumentary', ar: 'الجلد', color: '#e6b39a' },
-  { key: 'muscular', ar: 'الجهاز العضلي', color: '#e0474c' },
-  { key: 'skeletal', ar: 'الجهاز الهيكلي', color: '#eadfc8' },
+  { key: 'muscular', ar: 'الجهاز العضلي', color: '#d0403b' },
+  { key: 'skeletal', ar: 'الجهاز الهيكلي', color: '#e8dcc4' },
   { key: 'cardiovascular', ar: 'القلب والأوعية', color: '#ff3b4e' },
-  { key: 'nervous', ar: 'الجهاز العصبي', color: '#f5c96a' },
+  { key: 'nervous', ar: 'الجهاز العصبي', color: '#f2cf3a' },
   { key: 'respiratory', ar: 'الجهاز التنفسي', color: '#7fd3f7' },
   { key: 'digestive', ar: 'الجهاز الهضمي', color: '#f39a5b' },
   { key: 'urinary', ar: 'الجهاز البولي', color: '#e8d25a' },
   { key: 'genital', ar: 'الجهاز التناسلي', color: '#d68bd9' },
   { key: 'endocrine', ar: 'الغدد الصماء', color: '#9be29b' },
-  { key: 'lymphoid', ar: 'الجهاز اللمفاوي', color: '#8fb4ff' },
+  { key: 'lymphoid', ar: 'الجهاز اللمفاوي', color: '#3fb86b' },
   { key: 'sense', ar: 'أعضاء الحس', color: '#7ff0d6' },
 ]
 export const SYSTEM_BY_KEY = Object.fromEntries(SYSTEMS.map((s) => [s.key, s]))
