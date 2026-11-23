@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import Scene, { flyHome } from './three/Scene'
 import { loadGroups, buildBVHIdle } from './three/registry'
 import { useStore, deepLink, type Mode, type TourId } from './store'
-import { SYSTEMS, LAYERS, search, isMobile, type Structure } from './data'
+import { SYSTEMS, LAYERS, STRUCTURES, search, isMobile, type Structure } from './data'
 import Loader from './ui/Loader'
 import InfoCard from './ui/InfoCard'
 import Sources from './ui/Sources'
@@ -139,6 +139,22 @@ function Dock() {
   )
 }
 
+// finger dissection: undo the last removal or put everything back
+function DissectBar() {
+  const removed = useStore((s) => s.removed)
+  const undo = useStore((s) => s.undo)
+  const restoreAll = useStore((s) => s.restoreAll)
+  if (!removed.length) return null
+  const last = STRUCTURES[removed[removed.length - 1]]
+  return (
+    <div className="dissect glass" role="toolbar" aria-label="التشريح">
+      <button onClick={undo} title={last ? 'إرجاع ' + last.ar : 'تراجع'}><span aria-hidden>↶</span>تراجع</button>
+      <i />
+      <button onClick={restoreAll}>إعادة الكل <b>{removed.length}</b></button>
+    </div>
+  )
+}
+
 function ToursBar() {
   const tour = useStore((s) => s.tour)
   const caption = useStore((s) => s.caption)
@@ -185,6 +201,7 @@ export default function App() {
         <SystemsMenu />
         <InfoCard />
         <ToursBar />
+        <DissectBar />
         <Dock />
         {ready && streaming < 1 && <div className="stream glass">تحميل العضلات… {Math.round(streaming * 100)}%</div>}
       </div>

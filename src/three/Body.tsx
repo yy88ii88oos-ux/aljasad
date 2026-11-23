@@ -2,7 +2,7 @@ import { useEffect, useRef } from 'react'
 import { useFrame, useThree } from '@react-three/fiber'
 import * as THREE from 'three'
 import gsap from 'gsap'
-import { parts, root } from './registry'
+import { parts, root, type Part } from './registry'
 import { SHARED, CLIP_PLANE } from './materials'
 import { useStore } from '../store'
 import { LAYER_INDEX } from '../data'
@@ -18,12 +18,46 @@ export function heartPulse(t: number) {
 export const breathPhase = (t: number) => 0.5 - 0.5 * Math.cos(t * BREATH * Math.PI * 2)
 
 const tmp = new THREE.Vector3()
-const segA = new THREE.Vector3(), segB = new THREE.Vector3()
-let selR = 0.1
-const ray = new THREE.Ray(), box = new THREE.Box3()
+const segB = new THREE.Vector3()
 const glowCol = new THREE.Color()
 const WARM = new THREE.Color('#ffd9a0')
 const EXT = { x: 0.34, y: 0.86, z: 0.2 }
+
+// occluders of the selection: real ray casts (BVH) from the eye to a few points of the selected structure,
+// redone only when the selection or the camera changes
+const ghosts = new Set<string>()
+const caster = new THREE.Raycaster()
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+;(caster as any).firstHitOnly = false
+let gKey = '', gTime = 0
+const camLast = new THREE.Vector3(), up = new THREE.Vector3(), right = new THREE.Vector3(), aim = new THREE.Vector3()
+function updateGhosts(sel: Part, camera: THREE.Camera, t: number) {
+  // recompute on a new selection, a camera move, newly streamed parts, or a slow refresh (layers fading in/out)
+  const key = sel.id + ':' + parts.size
+  const moved = camLast.distanceToSquared(camera.position) > 1e-5
+  if (gKey === key && !moved && t - gTime < 1.0) return
+  if (gKey === key && t - gTime < 0.12) return
+  gKey = key; gTime = t; camLast.copy(camera.position)
+  ghosts.clear()
+  const c = segB.copy(sel.center).add(sel.mesh.position)
+  const half = sel.s.max.map((v, i) => (v - sel.s.min[i]) * 0.3)
+  const ext = Math.max(...half)
+  right.setFromMatrixColumn(camera.matrixWorld, 0); up.setFromMatrixColumn(camera.matrixWorld, 1)
+  const samples = [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1]]
+  const cands = [...parts.values()].filter((p) => p !== sel && p.mesh.visible && p.target > 0.5)
+  for (const [a, b] of samples) {
+    aim.copy(c).addScaledVector(right, a * ext).addScaledVector(up, b * ext)
+    caster.set(camera.position, aim.clone().sub(camera.position).normalize())
+    const hitSel = caster.intersectObject(sel.mesh, false)[0]
+    const limit = hitSel ? hitSel.distance : camera.position.distanceTo(aim)
+    caster.far = limit
+    for (const p of cands) {
+      if (ghosts.has(p.id)) continue
+      if (caster.intersectObject(p.mesh, false).length) ghosts.add(p.id)
+    }
+    caster.far = Infinity
+  }
+}
 
 export default function Body() {
   const explodeT = useRef(0)
@@ -50,14 +84,11 @@ export default function Body() {
       SHARED.uCap.value = 0
     }
 
-    // focus: ghost whatever sits between the camera and the focused structure
-    const sel = st.focused && st.selected ? parts.get(st.selected) : undefined
-    if (sel) {
-      segA.copy(camera.position); segB.copy(sel.center).add(sel.mesh.position)
-      const sz = sel.s.max.map((v, i) => v - sel.s.min[i])
-      selR = Math.max(0.05, Math.max(...sz) * 0.55)
-      ray.set(segA, segB.clone().sub(segA).normalize())
-    }
+    // selection: whatever sits between the camera and the selected structure turns to glass
+    const sel = st.selected && !st.tour ? parts.get(st.selected) : undefined
+    const removed = st.removed.length ? new Set(st.removed) : null
+    if (sel) updateGhosts(sel, camera, t)
+    else if (ghosts.size) ghosts.clear()
     const pulse = st.life ? heartPulse(t) : 0
     const breath = st.life ? breathPhase(t) : 0
     const xray = st.mode === 'xray'
@@ -71,15 +102,12 @@ export default function Body() {
         if (s.layer === 'skin') { if (st.depth > 0) target = 0 }
         else if (li < st.depth) target = 0
       }
+      if (removed?.has(p.id)) target = 0
+      let ghost = false
       if (st.isolated && st.selected) target = p.id === st.selected ? 1 : 0
-      else if (sel && p !== sel && target > 0) {
-        // ghost anything whose bounds the camera→target sight line crosses before reaching the target
-        box.min.set(...p.s.min).add(p.mesh.position); box.max.set(...p.s.max).add(p.mesh.position)
-        const hit = ray.intersectBox(box, tmp)
-        const dTarget = segA.distanceTo(segB)
-        if (hit && segA.distanceTo(hit) < dTarget - selR * 0.6 && !box.containsPoint(segB)) target = 0.12
-      }
+      else if (sel && p !== sel && target > 0 && ghosts.has(p.id)) ghost = true
       if (st.tour === 'arm' && s.group !== 'skeleton' && !(s.group === 'muscles' && /arm|brachi|deltoid|biceps|triceps|anconeus|pectoralis major|carpi|pronator|supinator/.test(s.en))) target = Math.min(target, 0)
+      p.ghost = ghost && !xray
       p.target = target
       p.fade += (target - p.fade) * k
       const visible = p.fade > 0.01
@@ -88,7 +116,7 @@ export default function Body() {
 
       // ---------- material: X-ray vs real ----------
       const isSel = p.id === st.selected || st.highlight.includes(p.id)
-      const useX = xray && !isSel
+      const useX = (xray && !isSel) || p.ghost
       const m = p.mat
       if (useX) { if (p.mesh.material !== p.xray) p.mesh.material = p.xray }
       else if (p.mesh.material !== m) p.mesh.material = m
@@ -102,9 +130,11 @@ export default function Body() {
         // highlight glow (bloom picks up emissive > 1)
         const want = p.id === st.selected ? 0.75 + 0.25 * Math.sin(t * 3) : st.highlight.includes(p.id) ? 0.7 + 0.3 * Math.sin(t * 5) : p.id === st.hovered ? 0.55 : 0
         p.glow += (want - p.glow) * k
-        glowCol.copy(m.userData.baseColor as THREE.Color).lerp(WARM, 0.35)
-        m.emissive.copy(glowCol)
-        m.emissiveIntensity = p.glow * 3.2
+        glowCol.copy(m.userData.baseColor as THREE.Color).lerp(WARM, 0.55)
+        const u = m.userData.u as { uGlow: { value: number }; uGlowColor: { value: THREE.Color } }
+        u.uGlow.value = p.glow
+        u.uGlowColor.value.copy(glowCol)
+        m.emissiveIntensity = 0
         // skin glass reads better from DoubleSide in section mode
         const side = s.layer === 'skin' ? THREE.FrontSide : THREE.DoubleSide
         if (m.side !== side) { m.side = side; m.needsUpdate = true }
@@ -144,7 +174,7 @@ export default function Body() {
       let best: { d: number; id: string } | null = null
       let skinHit: string | null = null
       for (const p of parts.values()) {
-        if (!p.mesh.visible || p.fade < 0.5) continue
+        if (!p.mesh.visible || p.fade < 0.5 || p.ghost) continue
         const hits = ray.intersectObject(p.mesh, false)
         if (!hits.length) continue
         // honour section plane
@@ -156,7 +186,7 @@ export default function Body() {
       return best?.id ?? skinHit
     }
     // debug/automation hook (used by screenshot scripts)
-    ;(window as unknown as Record<string, unknown>).__jasad = { pickAt: (x: number, y: number) => pick({ clientX: x, clientY: y } as MouseEvent), parts, store: useStore, shared: SHARED, gsap }
+    ;(window as unknown as Record<string, unknown>).__jasad = { ghosts, pickAt: (x: number, y: number) => pick({ clientX: x, clientY: y } as MouseEvent), parts, store: useStore, shared: SHARED, gsap }
     let last = 0, raf = 0
     let down = { x: 0, y: 0, t: 0 }
     let lastTap = { t: 0, id: null as string | null }

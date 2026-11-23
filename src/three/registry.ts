@@ -19,6 +19,7 @@ export interface Part {
   fade: number // current opacity factor 0..1 (animated)
   target: number // desired visibility 0..1
   glow: number // current highlight 0..1
+  ghost: boolean // drawn as Fresnel glass because it hides the selection
   explodeDir: THREE.Vector3
   pulse?: { pivot: THREE.Vector3; kind: 'heart' | 'lung' | 'diaphragm' }
 }
@@ -128,7 +129,7 @@ function register(scene: THREE.Object3D) {
     mesh.matrixAutoUpdate = true
     const center = new THREE.Vector3(...s.c)
     const p: Part = {
-      id, s, mesh, mat, xray: xrayShared, center, fade: 0, target: 1, glow: 0,
+      id, s, mesh, mat, xray: xrayShared, center, fade: 0, target: 1, glow: 0, ghost: false,
       explodeDir: new THREE.Vector3(),
     }
     if (s.group === 'skin') mesh.renderOrder = 10

@@ -32,6 +32,7 @@ export default function InfoCard() {
         </>
       )}
       <div className="card-actions">
+        <button className="btn danger" onClick={() => useStore.getState().remove(s.id)} title="إخفاء هذا التركيب وحده ليظهر ما تحته">إزالة</button>
         <button className={'btn' + (isolated ? ' on' : '')} onClick={() => set({ isolated: !isolated })}>{isolated ? 'إظهار الكل' : 'عزل العضو'}</button>
         <button className="btn" onClick={() => select(s.id, true)}>طيران إليه</button>
       </div>
