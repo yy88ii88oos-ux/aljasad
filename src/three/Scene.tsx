@@ -265,7 +265,37 @@ const STILL = /[?&](still|cam=)/.test(location.search)
 // MSAA in the HDR composer turned frames black with blended particles in testing (and costs a lot on phones):
 // anti-aliasing comes from SMAA at device-pixel-ratio 2 instead. ?msaa=4 re-enables it for comparison.
 const MSAA = /[?&]msaa=4/.test(location.search) ? 4 : 0
+// iOS Safari: no ambient-occlusion pass (heavy, and a suspect for black frames); a black-frame guard covers the rest
+const IOS = /iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)
+const SAFE_KEY = 'jasad.safeFx'
+const storedSafe = (() => { try { return localStorage.getItem(SAFE_KEY) === '1' } catch { return false } })()
 const FX = !/[?&]fx=0/.test(location.search)
+// If the composited frame comes out pure black while the body should be on screen, fall back to plain rendering
+// (no post-processing) and remember that on this device. Reads a few pixels right after the composer has drawn.
+function BlackGuard({ onFail }: { onFail: () => void }) {
+  const { gl } = useThree()
+  const st = useRef({ t0: -1, next: 0, bad: 0, done: false })
+  const px = useMemo(() => new Uint8Array(4), [])
+  useFrame((state) => {
+    const g = st.current
+    if (g.done || !useStore.getState().ready) return
+    const t = state.clock.elapsedTime
+    if (g.t0 < 0) { g.t0 = t; g.next = t + 3 }
+    if (t < g.next) return
+    g.next = t + 1.5
+    if (t - g.t0 > 40) { g.done = true; return }
+    const ctx = gl.getContext(), w = ctx.drawingBufferWidth, h = ctx.drawingBufferHeight
+    let max = 0
+    for (const [fx, fy] of [[0.5, 0.5], [0.5, 0.35], [0.5, 0.65], [0.3, 0.5], [0.7, 0.5], [0.1, 0.9]]) {
+      ctx.readPixels(Math.floor(w * fx), Math.floor(h * fy), 1, 1, ctx.RGBA, ctx.UNSIGNED_BYTE, px)
+      max = Math.max(max, px[0], px[1], px[2])
+    }
+    // the backdrop alone is never pure black, so an all-black sample means a broken frame
+    g.bad = max <= 2 ? g.bad + 1 : 0
+    if (g.bad >= 2) { g.done = true; console.warn('black frames detected: post-processing disabled on this device'); onFail() }
+  }, 2)
+  return null
+}
 function Effects({ lite }: { lite: boolean }) {
   const dofRef = useRef<DepthOfFieldEffect>(null)
   useFrame(() => {
@@ -277,7 +307,7 @@ function Effects({ lite }: { lite: boolean }) {
   if (isMobile || lite) {
     return (
       <EffectComposer multisampling={MSAA}>
-        {!lite && !/noao/.test(location.search) ? <N8AO halfRes quality="performance" aoRadius={0.05} distanceFalloff={0.6} intensity={2.2} /> : <></>}
+        {!lite && !IOS && !/noao/.test(location.search) ? <N8AO halfRes quality="performance" aoRadius={0.05} distanceFalloff={0.6} intensity={2.2} /> : <></>}
         <Bloom mipmapBlur luminanceThreshold={2.2} intensity={0.7} radius={0.6} />
         <Vignette offset={0.25} darkness={0.75} />
         <ToneMapping mode={ToneMappingMode.ACES_FILMIC} />
@@ -297,6 +327,13 @@ function Effects({ lite }: { lite: boolean }) {
   )
 }
 
+// tone mapping lives in the composer normally, in the renderer when post-processing is off
+function ToneSync({ safe }: { safe: boolean }) {
+  const { gl } = useThree()
+  useEffect(() => { gl.toneMapping = safe ? THREE.ACESFilmicToneMapping : THREE.NoToneMapping }, [gl, safe])
+  return null
+}
+
 export default function Scene() {
   const ready = useStore((s) => s.ready)
   const maxDpr = Math.min(window.devicePixelRatio || 1, 2)
@@ -304,10 +341,19 @@ export default function Scene() {
   const minDpr = Math.min(maxDpr, 1.5)
   const [dpr, setDpr] = useState(maxDpr)
   const [lite, setLite] = useState(false)
+  const [safe, setSafe] = useState(storedSafe || !FX)
+  const goSafe = () => { try { localStorage.setItem(SAFE_KEY, '1') } catch { /* private mode */ } setSafe(true) }
   return (
     <Canvas
       dpr={dpr}
-      gl={{ antialias: false, powerPreference: 'high-performance', toneMapping: FX ? THREE.NoToneMapping : THREE.ACESFilmicToneMapping }}
+      gl={{ antialias: false, powerPreference: 'high-performance', toneMapping: safe ? THREE.ACESFilmicToneMapping : THREE.NoToneMapping }}
+      onCreated={({ gl }) => {
+        // a lost GPU context (memory pressure on phones) shows as a black canvas: reload once in safe mode
+        gl.domElement.addEventListener('webglcontextlost', (e) => {
+          e.preventDefault()
+          try { if (!sessionStorage.getItem('jasad.reloaded')) { sessionStorage.setItem('jasad.reloaded', '1'); localStorage.setItem(SAFE_KEY, '1'); location.reload() } } catch { /* ignore */ }
+        })
+      }}
       camera={{ position: HOME.pos.toArray() as [number, number, number], fov: 38, near: 0.02, far: 80 }}
       style={{ position: 'fixed', inset: 0 }}
     >
@@ -322,7 +368,9 @@ export default function Scene() {
       <Rig />
       {/* adaptive quality: lower resolution first, then drop SSAO + DoF */}
       <PerformanceMonitor flipflops={4} onDecline={() => { if (dpr > minDpr + 0.01) setDpr(Math.max(minDpr, dpr - 0.25)); else setLite(true) }} onIncline={() => setDpr(Math.min(maxDpr, dpr + 0.25))} />
-      {FX && <Effects lite={lite} />}
+      {!safe && <Effects lite={lite} />}
+      {!safe && <BlackGuard onFail={goSafe} />}
+      <ToneSync safe={safe} />
     </Canvas>
   )
 }

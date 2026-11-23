@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import Scene, { flyHome, openCut, intro } from './three/Scene'
 import { initAudio, setSound, setHeartbeat } from './audio'
 import { loadGroups, buildBVHIdle } from './three/registry'
+import { loadTextures } from './three/textures'
 import { useStore, deepLink, type Mode, type TourId } from './store'
 import { SYSTEMS, LAYERS, LAYER_INDEX, STRUCTURES, search, isMobile, type Structure } from './data'
 import Loader from './ui/Loader'
@@ -32,7 +33,7 @@ function useLoad() {
         }, 250)
         return loadGroups(['muscles'], (f) => set({ streaming: f }))
       })
-      .then(() => { set({ streaming: 1 }); buildBVHIdle() })
+      .then(() => { set({ streaming: 1 }); buildBVHIdle(); loadTextures() })
       .catch((e) => console.error(e))
     return () => { alive = false }
   }, [set])

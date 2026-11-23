@@ -1,5 +1,6 @@
 import * as THREE from 'three'
 import type { Structure } from '../data'
+import { TEX, IRIS, IRIS_ON, type TexName } from './textures'
 
 // Uniforms shared by every body material (one JS object → one update per frame)
 export const SHARED = {
@@ -71,12 +72,12 @@ uniform float uTime; uniform float uBend; uniform vec3 uPivot; uniform vec3 uAxi
 attribute vec3 gpos; attribute vec3 gnor;
 #endif
 attribute vec2 armw; attribute vec3 fdir;
-varying vec3 vObj; varying vec3 vFdir;
+varying vec3 vObj; varying vec3 vFdir; varying vec3 vObjN;
 vec3 rotAxis(vec3 v, vec3 a, float ang){ float c=cos(ang), s=sin(ang); return v*c + cross(a,v)*s + a*dot(a,v)*(1.0-c); }
 `
 const VERT_BEGIN = /* glsl */ `
 vec3 transformed = vec3( position );
-vObj = position; vFdir = fdir;
+vObj = position; vFdir = fdir; vObjN = objectNormal;
 #ifdef GENMORPH
 transformed = mix(transformed, gpos, uGen);
 #endif
@@ -107,7 +108,21 @@ const FRAG_HEAD = /* glsl */ `
 uniform float uCap; uniform vec3 uCapColor; uniform float uTime;
 uniform vec3 uEyeA; uniform vec3 uEyeB; uniform float uEyeR;
 uniform float uGlow; uniform vec3 uGlowColor; uniform float uCut;
-varying vec3 vObj; varying vec3 vFdir;
+varying vec3 vObj; varying vec3 vFdir; varying vec3 vObjN;
+#ifdef TEX
+uniform sampler2D tAlb; uniform sampler2D tNrm; uniform float uTexScale; uniform float uTexAmt; uniform float uNrmAmt;
+// one triplanar plane: albedo multiplier and the screen-space height gradient from the normal map's slopes
+void jPlane(vec2 uv, float w, inout vec3 alb, inout vec2 dh){
+  if (w < 0.01) return;
+  alb += texture2D(tAlb, uv).rgb * w;
+  vec3 nm = texture2D(tNrm, uv).xyz * 2.0 - 1.0;
+  vec2 s = nm.xy / max(nm.z, 0.35);
+  dh += w * vec2(s.x * dFdx(uv.x) + s.y * dFdx(uv.y), s.x * dFdy(uv.x) + s.y * dFdy(uv.y));
+}
+#endif
+#ifdef EYE
+uniform sampler2D tIris; uniform float uIrisOn;
+#endif
 vec3 jPerturb( vec3 surf_pos, vec3 surf_norm, vec2 dHdxy, float faceDir ) {
   vec3 vSigmaX = normalize( dFdx( surf_pos.xyz ) ); vec3 vSigmaY = normalize( dFdy( surf_pos.xyz ) );
   vec3 R1 = cross( vSigmaY, surf_norm ); vec3 R2 = cross( surf_norm, vSigmaX );
@@ -156,6 +171,22 @@ if (uCut > 0.001) {
   jEdge = 1.0 - smoothstep(0.0, 0.03, hh - th);
 }
 #include <normal_fragment_maps>
+#ifdef TEX
+{
+  // triplanar in object space — or, for muscle, in the fibre frame so the texture's fibres follow each muscle
+  vec3 p = vObj / uTexScale, n = normalize(vObjN);
+#ifdef FIBERTEX
+  vec3 d = normalize(vFdir + vec3(1e-4));
+  vec3 a = normalize(abs(d.y) < 0.9 ? cross(d, vec3(0,1,0)) : cross(d, vec3(1,0,0))), b = cross(d, a);
+  p = vec3(dot(p, a), dot(p, d), dot(p, b)); n = vec3(dot(n, a), dot(n, d), dot(n, b));
+#endif
+  vec3 w = pow(abs(n), vec3(4.0)); w /= (w.x + w.y + w.z + 1e-5);
+  vec3 alb = vec3(0.0); vec2 dh = vec2(0.0);
+  jPlane(p.zy, w.x, alb, dh); jPlane(p.xz, w.y, alb, dh); jPlane(p.xy, w.z, alb, dh);
+  diffuseColor.rgb *= mix(vec3(1.0), alb * 2.0, uTexAmt);
+  normal = jPerturb( -vViewPosition, normal, dh * uNrmAmt, faceDirection );
+}
+#endif
 #ifdef FIBER
 float fh = fiberH(vObj, normalize(vFdir + vec3(1e-4)));
 normal = jPerturb( -vViewPosition, normal, vec2( dFdx(fh), dFdy(fh) ) * 0.35, faceDirection );
@@ -185,10 +216,14 @@ roughnessFactor = clamp(roughnessFactor * (0.78 + 0.45 * fh), 0.18, 1.0);
 #ifdef SKIN
 {
   // pores + mottling, flushed cheeks and lips, faintly glossier lips
+#ifdef TEX
+  float pore = 0.0; // the skin texture brings pores and creases
+#else
   float fq = fwidth(vObj.x * 2200.0) + fwidth(vObj.y * 2200.0);
   float pore = smoothstep(0.64, 0.82, jNoise(vObj * 2200.0)) * (1.0 - smoothstep(0.3, 0.8, fq));
   float mott = jNoise(vObj * 60.0) * 0.6 + jNoise(vObj * 14.0) * 0.4;
   diffuseColor.rgb *= 0.92 + 0.13 * mott - 0.07 * pore;
+#endif
   vec2 ck = (abs(vObj.xy - vec2(0.0, 0.677)) - vec2(0.036, 0.0)) / vec2(0.022, 0.018);
   float cheeks = exp(-dot(ck, ck)) * smoothstep(0.045, 0.06, vObj.z);
   vec2 lp = (vObj.xy - vec2(0.0, 0.652)) / vec2(0.023, 0.009);
@@ -243,6 +278,9 @@ roughnessFactor = clamp(roughnessFactor * (0.78 + 0.45 * fh), 0.18, 1.0);
   sclera = mix(sclera, vec3(0.86, 0.62, 0.58), smoothstep(0.9, 1.9, th) * 0.45);        // warmer toward the back
   float vessel = smoothstep(0.72, 0.78, jNoise(vec3(phi * 6.0, th * 14.0, 3.0))) * smoothstep(0.7, 1.4, th);
   sclera = mix(sclera, vec3(0.75, 0.25, 0.25), vessel * 0.35);
+  // photographed iris stroma when loaded (pupil kept procedural so its size stays anatomical)
+  vec3 irisT = texture2D(tIris, 0.5 + 0.5 * min(rr, 1.0) * vec2(cos(phi), sin(phi))).rgb;
+  iris = mix(iris, irisT, uIrisOn * smoothstep(0.42, 0.52, rr));
   vec3 col = mix(sclera, iris, irisM);
   col = mix(col, vec3(0.008), pupilM);
   diffuseColor.rgb = col;
@@ -288,6 +326,19 @@ export function kindOf(s: Structure): Kind {
   return 'organ'
 }
 
+// which texture a structure gets: tile size (m), albedo strength, bump strength
+function texFor(s: Structure, kind: Kind): { name: TexName; scale: number; amt: number; nrm: number } | null {
+  const n = s.en
+  if (kind === 'muscle') return { name: 'muscle', scale: 0.035, amt: 0.8, nrm: 0.5 }
+  if (kind === 'bone') return { name: 'bone', scale: 0.03, amt: 0.7, nrm: 0.6 }
+  if (kind === 'skin') return { name: 'skin', scale: 0.022, amt: 0.6, nrm: 0.35 }
+  if (kind === 'fat') return { name: 'fat', scale: 0.045, amt: 0.8, nrm: 0.7 }
+  if (/cartilage|disk|disc|menisc/.test(n) && kind !== 'clear') return { name: 'cartilage', scale: 0.03, amt: 0.5, nrm: 0.4 }
+  if (kind === 'organ' && /liver|spleen|kidney/.test(n)) return { name: 'liver', scale: 0.06, amt: 0.6, nrm: 0.5 }
+  if (kind === 'organ' && /lung/.test(n)) return { name: 'lung', scale: 0.05, amt: 0.7, nrm: 0.5 }
+  if (kind === 'brain' && /gyrus|lobe|lobule|cerebellum|insula|precuneus|hippocampus/.test(n)) return { name: 'brain', scale: 0.05, amt: 0.45, nrm: 0.3 }
+  return null
+}
 export interface EyeInfo { a: THREE.Vector3; b: THREE.Vector3; r: number }
 export function makeMaterial(s: Structure, eye?: EyeInfo): THREE.MeshPhysicalMaterial {
   const kind = kindOf(s)
@@ -352,6 +403,13 @@ export function makeMaterial(s: Structure, eye?: EyeInfo): THREE.MeshPhysicalMat
       defines.SSS = '0.35'
       break
   }
+  // tissue texture: replaces the procedural detail of that tissue
+  const tex = texFor(s, kind)
+  if (tex) {
+    delete defines.FIBER; delete defines.ORGANIC; delete defines.BONE; delete defines.FAT
+    defines.TEX = ''
+    if (tex.name === 'muscle') defines.FIBERTEX = ''
+  }
   m.defines = { ...(m.defines || {}), ...defines }
   // deeper layers and thin sheets (tendons, aponeuroses, cartilage) yield to the surface in front of them
   const off = ({ skin: 0, superficial: 0, deep: 1, organs: 2, bones: 3 } as Record<string, number>)[s.layer] + (kind === 'tissue' ? 1.5 : 0)
@@ -360,6 +418,8 @@ export function makeMaterial(s: Structure, eye?: EyeInfo): THREE.MeshPhysicalMat
   const capColor = color.clone().multiplyScalar(kind === 'bone' || kind === 'tooth' ? 0.92 : 0.78)
   m.userData = { baseColor: color.clone(), kind, baseOpacity: m.opacity, transparentBase: m.transparent, u: own }
   m.onBeforeCompile = (sh) => {
+    if (tex) Object.assign(sh.uniforms, { tAlb: TEX[tex.name].alb, tNrm: TEX[tex.name].nrm, uTexScale: { value: tex.scale }, uTexAmt: { value: tex.amt }, uNrmAmt: { value: tex.nrm } })
+    if (kind === 'eye') Object.assign(sh.uniforms, { tIris: IRIS, uIrisOn: IRIS_ON })
     Object.assign(sh.uniforms, SHARED, own, { uCapColor: { value: capColor }, uPush: { value: kind === 'skin' ? 0.0018 : kind === 'fat' ? 0.0022 : 0 },
       uEyeA: { value: eye?.a ?? new THREE.Vector3() }, uEyeB: { value: eye?.b ?? new THREE.Vector3() }, uEyeR: { value: eye?.r ?? 0.012 } })
     sh.vertexShader = VERT_HEAD + sh.vertexShader
@@ -369,7 +429,7 @@ export function makeMaterial(s: Structure, eye?: EyeInfo): THREE.MeshPhysicalMat
       .replace('#include <normal_fragment_maps>', FRAG_NORMAL)
       .replace('#include <dithering_fragment>', FRAG_END)
   }
-  m.customProgramCacheKey = () => 'jasad-' + kind
+  m.customProgramCacheKey = () => 'jasad-' + kind + (tex ? '-tex' + (tex.name === 'muscle' ? 'f' : '') : '')
   return m
 }
 

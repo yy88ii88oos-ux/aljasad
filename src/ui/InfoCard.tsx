@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { STRUCTURES, SYSTEM_BY_KEY, LAYERS, isMobile } from '../data'
 import { useStore } from '../store'
 import { flyHome, openCut } from '../three/Scene'
+import { panelFor } from '../panels'
 
 const canSpeak = typeof window !== 'undefined' && 'speechSynthesis' in window
 function speak(text: string) {
@@ -58,6 +59,7 @@ export default function InfoCard() {
       <button className="card-more" onClick={() => setMore(!more)} aria-expanded={more}>{more ? 'إخفاء التفاصيل' : 'الوظيفة ومعلومة مدهشة'} <b>{more ? '▴' : '▾'}</b></button>
       {more && (
         <div className="card-body">
+          {(() => { const src = panelFor(s.id, s.en, s.system); return src && <img className="card-panel" src={src} alt={'رسم توضيحي: ' + s.ar} loading="lazy" /> })()}
           {s.fn && (<><h3>الوظيفة</h3><p>{s.fn}</p></>)}
           {s.fact && (<div className="card-fact"><b>✦ معلومة مدهشة</b><p>{s.fact}</p></div>)}
           {s.connected.length > 0 && (

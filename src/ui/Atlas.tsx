@@ -3,6 +3,7 @@ import { useStore } from '../store'
 import { flyTo, HOME } from '../three/Scene'
 import * as THREE from 'three'
 import { openStudy } from './MyBody'
+import { SYSTEM_PANEL, STUDY_PANEL } from '../panels'
 
 const THUMB: Record<string, string> = Object.fromEntries(SYSTEMS.map((s) => [s.key, import.meta.env.BASE_URL + 'thumbs/' + s.key + '.webp']))
 const COUNT: Record<string, number> = {}
@@ -33,7 +34,7 @@ export default function Atlas({ onClose }: { onClose: () => void }) {
         <div className="atlas-grid my">
           {([['clavicle', 'الترقوة اليمنى', 'مع صفيحة التثبيت'], ['knee', 'الركبة اليسرى', 'بأدق التفاصيل']] as const).map(([k, t, sub]) => (
             <button key={k} className="atlas-card" style={{ ['--c' as string]: '#ffcf86' }} onClick={() => { onClose(); openStudy(k) }}>
-              <img src={import.meta.env.BASE_URL + 'thumbs/my-' + k + '.webp'} alt="" loading="lazy" width={240} height={320} />
+              <img src={STUDY_PANEL[k]} alt="" loading="lazy" width={240} height={320} />
               <span><i />{t}</span>
               <small>{sub}</small>
             </button>
@@ -43,7 +44,7 @@ export default function Atlas({ onClose }: { onClose: () => void }) {
         <div className="atlas-grid">
           {SYSTEMS.filter((s) => s.key !== 'genital').map((s) => (
             <button key={s.key} className="atlas-card" style={{ ['--c' as string]: s.color }} onClick={() => open(s.key)}>
-              <img src={THUMB[s.key]} alt="" loading="lazy" width={240} height={320} />
+              <img src={SYSTEM_PANEL[s.key] ?? THUMB[s.key]} alt="" loading="lazy" width={240} height={320} />
               <span><i />{s.ar}</span>
               <small>{COUNT[s.key] || 0} تركيبًا</small>
             </button>
