@@ -188,23 +188,35 @@ function buildClavicle() {
   const proj = vs.map((v) => v.clone().sub(ctr).dot(ax))
   const lo = Math.min(...proj), hi = Math.max(...proj)
   const slice = (s: number) => { const w = (hi - lo) * 0.03; return vs.filter((_, j) => Math.abs(proj[j] - s) < w) }
-  // superior plate over the lateral-to-middle part of the shaft (from ~10 % to ~68 % of the length, lateral end first)
+  // superior plate over the lateral-to-middle shaft: ~20 % → ~67 % of the length from the lateral end (≈ ½ the bone)
   const pts: THREE.Vector3[] = []
   for (let i = 0; i <= 12; i++) {
-    const sl = slice(lo + (hi - lo) * (0.1 + 0.58 * i / 12))
+    const sl = slice(lo + (hi - lo) * (0.2 + 0.47 * i / 12))
     if (sl.length) pts.push(sl.reduce((a, v) => (v.y > a.y ? v : a)).clone().add(V(0, 0.0004, 0)))
   }
-  const curve = new THREE.CatmullRomCurve3(pts, false, 'centripetal')
+  // a pre-contoured plate is a smooth arc, not a copy of every bump: least-squares quadratic through the summit points,
+  // then lifted so it rests on (never sinks into) the highest of them
+  const fit = (k: 'x' | 'y' | 'z') => {
+    const n = pts.length; let s0 = 0, s1 = 0, s2 = 0, s3 = 0, s4 = 0, b0 = 0, b1 = 0, b2 = 0
+    pts.forEach((p, i) => { const t = i / (n - 1), y = p[k]; s0++; s1 += t; s2 += t * t; s3 += t ** 3; s4 += t ** 4; b0 += y; b1 += y * t; b2 += y * t * t })
+    const M = new THREE.Matrix3().set(s0, s1, s2, s1, s2, s3, s2, s3, s4).invert()
+    const c = new THREE.Vector3(b0, b1, b2).applyMatrix3(M)
+    return (t: number) => c.x + c.y * t + c.z * t * t
+  }
+  const fx = fit('x'), fy = fit('y'), fz = fit('z')
+  const lift = Math.max(...pts.map((p, i) => p.y - fy(i / (pts.length - 1))), 0)
+  const smooth = Array.from({ length: 13 }, (_, i) => V(fx(i / 12), fy(i / 12) + lift, fz(i / 12)))
+  const curve = new THREE.CatmullRomCurve3(smooth, false, 'centripetal')
   add('MY_PLATE', strip(curve, 0.0105, 0.0032))
-  // 8 screws through the plate, bicortical (tips just past the inferior cortex); the two central ones converge
+  // 8 bicortical screws (tips just past the inferior cortex): mostly perpendicular, the 3rd clearly oblique (tip medial), the 5th slightly tilted
   const screws: THREE.BufferGeometry[] = []
   const N = 8
   for (let i = 0; i < N; i++) {
     const t = 0.06 + 0.88 * i / (N - 1)
     const p = curve.getPointAt(t)
-    const sl = slice(lo + (hi - lo) * (0.1 + 0.58 * t))
+    const sl = slice(lo + (hi - lo) * (0.2 + 0.47 * t))
     const bottom = sl.length ? Math.min(...sl.map((v) => v.y)) : p.y - 0.012
-    const tilt = i === 3 ? 0.38 : i === 4 ? -0.38 : 0 // radians, in the frontal plane
+    const tilt = i === 2 ? 0.5 : i === 4 ? -0.14 : 0 // radians in the frontal plane; + leans the tip medially
     const len = (p.y - bottom) / Math.cos(tilt) + 0.0025
     const head = new THREE.CylinderGeometry(0.0026, 0.0024, 0.0012, 18).translate(p.x, p.y + 0.0036, p.z)
     const slot = new THREE.BoxGeometry(0.0034, 0.0005, 0.0007).translate(p.x, p.y + 0.0043, p.z)
