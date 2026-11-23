@@ -311,7 +311,8 @@ export function makeMaterial(s: Structure, eye?: EyeInfo): THREE.MeshPhysicalMat
     }
     case 'metal':
       // anodised-free titanium: fully metallic, brushed (moderate roughness), mirror-like clearcoat
-      Object.assign(m, { metalness: 0.85, roughness: 0.32, clearcoat: 0.7, clearcoatRoughness: 0.1, envMapIntensity: 3.0, sheen: 0 })
+      // the studio environment is dark, so a pure metal reads black: keep part of the diffuse response for a real titanium grey
+      Object.assign(m, { metalness: 0.55, roughness: 0.26, clearcoat: 1, clearcoatRoughness: 0.08, envMapIntensity: 2.5, sheen: 0 })
       break
     case 'tooth':
       Object.assign(m, { roughness: 0.3, clearcoat: 0.8, clearcoatRoughness: 0.2 })

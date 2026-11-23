@@ -180,26 +180,36 @@ function buildClavicle() {
     for (const v of vs) { const d = v.clone().sub(ctr); nx.addScaledVector(d, d.dot(ax)) }
     ax = nx.normalize()
   }
+  // orient the axis lateral → medial (right clavicle: the lateral end has the more negative x)
+  const proj0 = vs.map((v) => v.clone().sub(ctr).dot(ax))
+  const lo0 = Math.min(...proj0), hi0 = Math.max(...proj0)
+  const meanX = (sel: (p: number) => boolean) => { const xs = vs.filter((_, j) => sel(proj0[j])).map((v) => v.x); return xs.reduce((a, x) => a + x, 0) / xs.length }
+  if (meanX((p) => p > hi0 - (hi0 - lo0) * 0.1) < meanX((p) => p < lo0 + (hi0 - lo0) * 0.1)) ax.negate()
   const proj = vs.map((v) => v.clone().sub(ctr).dot(ax))
   const lo = Math.min(...proj), hi = Math.max(...proj)
-  // superior surface: highest point in each slice across the middle 70 % of the bone
+  const slice = (s: number) => { const w = (hi - lo) * 0.03; return vs.filter((_, j) => Math.abs(proj[j] - s) < w) }
+  // superior plate over the lateral-to-middle part of the shaft (from ~10 % to ~68 % of the length, lateral end first)
   const pts: THREE.Vector3[] = []
-  for (let i = 0; i <= 10; i++) {
-    const s = lo + (hi - lo) * (0.17 + 0.66 * i / 10), w = (hi - lo) * 0.035
-    let best: THREE.Vector3 | null = null
-    vs.forEach((v, j) => { if (Math.abs(proj[j] - s) < w && (!best || v.y > best.y)) best = v })
-    if (best) pts.push((best as THREE.Vector3).clone().add(V(0, 0.0004, 0)))
+  for (let i = 0; i <= 12; i++) {
+    const sl = slice(lo + (hi - lo) * (0.1 + 0.58 * i / 12))
+    if (sl.length) pts.push(sl.reduce((a, v) => (v.y > a.y ? v : a)).clone().add(V(0, 0.0004, 0)))
   }
   const curve = new THREE.CatmullRomCurve3(pts, false, 'centripetal')
   add('MY_PLATE', strip(curve, 0.0105, 0.0032))
-  // 6 locking screws: heads on the plate, shafts down through the bone
+  // 8 screws through the plate, bicortical (tips just past the inferior cortex); the two central ones converge
   const screws: THREE.BufferGeometry[] = []
-  for (const t of [0.1, 0.24, 0.38, 0.62, 0.76, 0.9]) {
+  const N = 8
+  for (let i = 0; i < N; i++) {
+    const t = 0.06 + 0.88 * i / (N - 1)
     const p = curve.getPointAt(t)
+    const sl = slice(lo + (hi - lo) * (0.1 + 0.58 * t))
+    const bottom = sl.length ? Math.min(...sl.map((v) => v.y)) : p.y - 0.012
+    const tilt = i === 3 ? 0.38 : i === 4 ? -0.38 : 0 // radians, in the frontal plane
+    const len = (p.y - bottom) / Math.cos(tilt) + 0.0025
     const head = new THREE.CylinderGeometry(0.0026, 0.0024, 0.0012, 18).translate(p.x, p.y + 0.0036, p.z)
-    const shaft = new THREE.CylinderGeometry(0.0013, 0.0011, 0.014, 12).translate(p.x, p.y - 0.004, p.z)
     const slot = new THREE.BoxGeometry(0.0034, 0.0005, 0.0007).translate(p.x, p.y + 0.0043, p.z)
-    screws.push(head, shaft, slot)
+    const shaft = new THREE.CylinderGeometry(0.0013, 0.001, len, 12).translate(0, -len / 2, 0).rotateZ(tilt).translate(p.x, p.y + 0.003, p.z)
+    screws.push(head, slot, shaft)
   }
   add('MY_SCREWS', merge(screws))
   // brachial plexus (schematic): five roots C5–T1 from the cervical spine converge, pass under the clavicle to the axilla
